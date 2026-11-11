@@ -135,6 +135,7 @@ const KNOWLEDGE_CORPUS = formatKnowledge(KNOWLEDGE).toLowerCase();
 /** The model actually in use, falling back to a sensible default per provider. */
 function effectiveModel() {
   if (CONFIG.provider === 'ollama') return CONFIG.ollamaModel;
+  if (MODEL_STATE && MODEL_STATE.active) return MODEL_STATE.active;
   if (CONFIG.model) return CONFIG.model;
   return CONFIG.provider === 'openai' ? 'gpt-4o-mini' : 'gemini-3.8-flash';
 }
