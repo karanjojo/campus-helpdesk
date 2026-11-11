@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="AI-Powered University Campus Helpdesk for Presidency University. Ask about academics, exams, placements, hostel, library, administration and events." />
+  <title>AI Campus Helpdesk · Presidency University</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@500;600;700&display=swap" rel="stylesheet" />
+
+  <link rel="icon" href="assets/logo.png" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <a class="skip-link" href="#chatLog">Skip to chat</a>
+
+  <div class="app">
+    <!-- ================= Sidebar (desktop) ================= -->
+    <aside class="sidebar" id="sidebar" aria-label="Main navigation">
+      <div class="sidebar__brand">
+        <img class="brand-img brand-img--light" src="assets/logo.png" alt="Presidency University logo" />
+        <img class="brand-img brand-img--dark" src="assets/logo-white.png" alt="Presidency University logo" />
+      </div>
+
+      <nav class="sidebar__nav">
+        <p class="sidebar__label">Menu</p>
+        <button class="nav-link is-active" type="button" data-nav="home">
+          <span class="nav-link__icon" aria-hidden="true">🏠</span> Home
+        </button>
+
+        <p class="sidebar__label">Departments</p>
+        <button class="nav-link" type="button" data-topic="Academics">
+          <span class="nav-link__icon" aria-hidden="true">📚</span> Academics
+        </button>
+        <button class="nav-link" type="button" data-topic="Examinations">
+          <span class="nav-link__icon" aria-hidden="true">📝</span> Examinations
+        </button>
+        <button class="nav-link" type="button" data-topic="Placements">
+          <span class="nav-link__icon" aria-hidden="true">💼</span> Placements
+        </button>
+        <button class="nav-link" type="button" data-topic="Hostel">
+          <span class="nav-link__icon" aria-hidden="true">🏠</span> Hostel
+        </button>
+        <button class="nav-link" type="button" data-topic="Library">
+          <span class="nav-link__icon" aria-hidden="true">📖</span> Library
+        </button>
+        <button class="nav-link" type="button" data-topic="Administration">
+          <span class="nav-link__icon" aria-hidden="true">🗂️</span> Administration
+        </button>
+      </nav>
+
+      <div class="sidebar__foot">
+        <div class="sidebar__status">
+          <span class="dot dot--live" id="statusDot"></span>
+          <span id="statusText">Assistant online</span>
+        </div>
+        <p class="sidebar__note">Answers are grounded in the official campus knowledge base.</p>
+      </div>
+    </aside>
+
+    <div class="sidebar-scrim" id="sidebarScrim" hidden></div>
+
+    <!-- ================= Main column ================= -->
+    <div class="main">
+      <!-- ---------- Top bar ---------- -->
+      <header class="topbar">
+        <button class="icon-btn menu-btn" id="menuToggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="sidebar">
+          <span aria-hidden="true">☰</span>
+        </button>
+
+        <div class="topbar__brand">
+          <img class="topbar__logo" src="assets/logo-white.png" alt="Presidency University" />
+          <div class="topbar__titles">
+            <h1>AI Campus Helpdesk</h1>
+            <p>Ask · Learn · Get Help</p>
+          </div>
+        </div>
+
+        <div class="topbar__right">
+          <button class="icon-btn" id="themeToggle" type="button" aria-label="Toggle dark mode" title="Toggle dark mode">
+            <span class="icon-btn__light" aria-hidden="true">☀️</span>
+            <span class="icon-btn__dark" aria-hidden="true">🌙</span>
+          </button>
+          <div class="greeting">
+            <span class="greeting__wave" aria-hidden="true">👋</span>
+            <span>Hello, Student</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- ---------- Scrollable content ---------- -->
+      <main class="content">
+        <!-- Hero -->
+        <section class="hero">
+          <div class="hero__text">
+            <span class="hero__eyebrow">AI-Powered Support</span>
+            <h2>Welcome to Presidency University Campus Helpdesk!</h2>
+            <p>Your Smart Assistant for all University Queries</p>
+            <ul class="hero__points">
+              <li><span aria-hidden="true">✅</span> Academics &amp; attendance</li>
+              <li><span aria-hidden="true">✅</span> Exams, placements &amp; events</li>
+              <li><span aria-hidden="true">✅</span> Hostel, library &amp; records</li>
+            </ul>
+          </div>
+          <div class="hero__art" aria-hidden="true">
+            <svg viewBox="0 0 220 180" role="img" aria-label="Friendly campus assistant robot">
+              <defs>
+                <linearGradient id="bodyGrad" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#4F8CFF" />
+                  <stop offset="100%" stop-color="#0B2A5B" />
+                </linearGradient>
+              </defs>
+              <ellipse cx="110" cy="164" rx="66" ry="10" fill="#0B2A5B" opacity=".12" />
+              <line x1="110" y1="18" x2="110" y2="6" stroke="#0B2A5B" stroke-width="4" stroke-linecap="round" />
+              <circle cx="110" cy="4" r="6" fill="#3B82F6" />
+              <rect x="46" y="24" width="128" height="94" rx="26" fill="url(#bodyGrad)" />
+              <rect x="62" y="42" width="96" height="56" rx="18" fill="#EAF2FF" />
+              <circle cx="88" cy="66" r="9" fill="#0B2A5B" />
+              <circle cx="132" cy="66" r="9" fill="#0B2A5B" />
+              <circle cx="91" cy="63" r="3" fill="#fff" />
+              <circle cx="135" cy="63" r="3" fill="#fff" />
+              <rect x="94" y="84" width="32" height="7" rx="3.5" fill="#0B2A5B" opacity=".55" />
+              <rect x="34" y="118" width="152" height="18" rx="9" fill="#13386F" />
+              <rect x="70" y="136" width="18" height="24" rx="6" fill="#0B2A5B" />
+              <rect x="132" y="136" width="18" height="24" rx="6" fill="#0B2A5B" />
+              <path d="M174 78h20a10 10 0 0 1 0 20h-20" fill="none" stroke="#3B82F6" stroke-width="5" stroke-linecap="round" />
+              <circle cx="199" cy="88" r="8" fill="#3B82F6" />
+            </svg>
+          </div>
+        </section>
+
+        <!-- Category chips -->
+        <section class="topics" aria-labelledby="topicsHeading">
+          <h2 class="section-title" id="topicsHeading">Browse by topic</h2>
+          <div class="chips" id="categoryChips">
+            <button class="chip" type="button" data-topic="Academics"><span aria-hidden="true">📚</span> Academics</button>
+            <button class="chip" type="button" data-topic="Examinations"><span aria-hidden="true">📝</span> Examinations</button>
+            <button class="chip" type="button" data-topic="Placements"><span aria-hidden="true">💼</span> Placements</button>
+            <button class="chip" type="button" data-topic="Hostel"><span aria-hidden="true">🏠</span> Hostel</button>
+            <button class="chip" type="button" data-topic="Library"><span aria-hidden="true">📖</span> Library</button>
+            <button class="chip" type="button" data-topic="Administration"><span aria-hidden="true">🗂️</span> Administration</button>
+          </div>
+        </section>
+
+        <!-- Chat -->
+        <section class="chat-card" aria-labelledby="chatHeading">
+          <div class="chat-card__head">
+            <h2 class="section-title" id="chatHeading">Chat with the Campus Assistant</h2>
+            <span class="pill" id="modelPill">AI · loading…</span>
+          </div>
+
+          <div class="chat-log" id="chatLog" role="log" aria-live="polite" aria-label="Conversation"></div>
+
+          <form class="composer" id="chatForm" autocomplete="off">
+            <div class="composer__field">
+              <label class="sr-only" for="messageInput">Your question</label>
+              <textarea
+                id="messageInput"
+                rows="1"
+                maxlength="500"
+                placeholder="For example: Whom should I contact for placement training?"
+                aria-describedby="charCount"
+              ></textarea>
+              <span class="composer__count" id="charCount">0/500</span>
+            </div>
+            <div class="composer__actions">
+              <button class="btn btn--primary" id="sendBtn" type="submit">
+                <span aria-hidden="true">➤</span> Send
+              </button>
+              <button class="btn btn--ghost" id="clearBtn" type="button">Clear Chat</button>
+            </div>
+          </form>
+
+          <div class="suggestions">
+            <span class="suggestions__label">Try asking:</span>
+            <div class="suggestions__list" id="suggestionList"></div>
+          </div>
+        </section>
+
+        <footer class="footer">
+          <p><strong>Presidency University</strong> · AI Campus Helpdesk prototype (Technopia 2.0)</p>
+          <p class="footer__meta">
+            Answers are generated by an LLM grounded in a fixed university knowledge base and may be
+            inaccurate. For official information, always use the university's official channels.
+          </p>
+        </footer>
+      </main>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

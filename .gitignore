@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Secrets - never commit the real .env file
+.env
+.env.local
+.env.*.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+*.log
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Build / cache output
+dist/
+build/
+.cache/
+coverage/
