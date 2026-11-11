@@ -110,14 +110,28 @@ function renderAnswer(text) {
   return blocks
     .map((block) => {
       const lines = block.split('\n');
-      const isList = lines.every((l) => /^\s*[-*•]\s+/.test(l));
-      if (isList) {
-        const items = lines
-          .map((l) => `<li>${inline(l.replace(/^\s*[-*•]\s+/, ''))}</li>`)
-          .join('');
-        return `<ul>${items}</ul>`;
+      // A block may mix bullet lines with plain lines - walk it and group
+      // consecutive bullets into <ul> runs.
+      const html = [];
+      let run = [];
+
+      const flush = () => {
+        if (!run.length) return;
+        html.push(`<ul>${run.map((l) => `<li>${inline(l)}</li>`).join('')}</ul>`);
+        run = [];
+      };
+
+      for (const line of lines) {
+        const bullet = line.match(/^\s*[-*\u2022]\s+(.*)$/);
+        if (bullet) {
+          run.push(bullet[1]);
+        } else {
+          flush();
+          html.push(`<p>${inline(line)}</p>`);
+        }
       }
-      return `<p>${lines.map(inline).join('<br>')}</p>`;
+      flush();
+      return html.join('');
     })
     .join('');
 }
@@ -433,12 +447,6 @@ function initTheme() {
    Sidebar (mobile drawer)
    ------------------------------------------------------------------------- */
 function initSidebar() {
-  const close = () => {
-    els.sidebar.classList.remove('is-open');
-    els.sidebarScrim.hidden = true;
-    els.menuToggle.setAttribute('aria-expanded', 'false');
-  };
-
   els.menuToggle.addEventListener('click', () => {
     const open = !els.sidebar.classList.contains('is-open');
     els.sidebar.classList.toggle('is-open', open);
@@ -446,10 +454,17 @@ function initSidebar() {
     els.menuToggle.setAttribute('aria-expanded', String(open));
   });
 
-  els.sidebarScrim.addEventListener('click', close);
+  els.sidebarScrim.addEventListener('click', closeSidebar);
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') close();
+    if (e.key === 'Escape') closeSidebar();
   });
+}
+
+/** Close the mobile drawer and reset the menu button state. */
+function closeSidebar() {
+  els.sidebar.classList.remove('is-open');
+  els.sidebarScrim.hidden = true;
+  els.menuToggle.setAttribute('aria-expanded', 'false');
 }
 
 /* -------------------------------------------------------------------------
@@ -501,8 +516,7 @@ function initEvents() {
       updateCount();
       sendMessage(question);
       // Close the mobile drawer if it is open.
-      els.sidebar.classList.remove('is-open');
-      els.sidebarScrim.hidden = true;
+      closeSidebar();
     });
   });
 

@@ -89,6 +89,13 @@ function formatKnowledge(knowledge) {
     .join('\n');
 }
 
+/** The model actually in use, falling back to a sensible default per provider. */
+function effectiveModel() {
+  if (CONFIG.provider === 'ollama') return CONFIG.ollamaModel;
+  if (CONFIG.model) return CONFIG.model;
+  return CONFIG.provider === 'openai' ? 'gpt-4o-mini' : 'gemini-2.5-flash';
+}
+
 // ---------------------------------------------------------------------------
 // Prompt construction
 // ---------------------------------------------------------------------------
@@ -368,7 +375,7 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     provider: CONFIG.provider,
-    model: CONFIG.model || (CONFIG.provider === 'ollama' ? CONFIG.ollamaModel : ''),
+    model: effectiveModel(),
     knowledgeCategories: Object.keys(KNOWLEDGE).length,
     hasApiKey: Boolean(CONFIG.apiKey),
     timestamp: new Date().toISOString(),
@@ -379,7 +386,7 @@ app.get('/api/health', (req, res) => {
 app.get('/api/config', (req, res) => {
   res.json({
     provider: CONFIG.provider,
-    model: CONFIG.model || (CONFIG.provider === 'ollama' ? CONFIG.ollamaModel : ''),
+    model: effectiveModel(),
     aiEnabled: Boolean(CONFIG.apiKey) || CONFIG.provider === 'ollama',
   });
 });
@@ -435,7 +442,7 @@ app.post('/api/chat', async (req, res) => {
       category,
       grounded,
       provider: CONFIG.provider,
-      model: CONFIG.model || (CONFIG.provider === 'ollama' ? CONFIG.ollamaModel : ''),
+      model: effectiveModel(),
     });
   } catch (err) {
     // Never leak a stack trace or the API key to the client.
@@ -469,7 +476,7 @@ if (require.main === module) {
     console.log(`  ------------------------------------------`);
     console.log(`  Server running at  http://localhost:${PORT}`);
     console.log(`  LLM provider:     ${CONFIG.provider}`);
-    console.log(`  Model:             ${CONFIG.model || CONFIG.ollamaModel}`);
+    console.log(`  Model:             ${effectiveModel()}`);
     console.log(`  API key loaded:    ${CONFIG.apiKey ? 'yes' : 'NO  <-- set LLM_API_KEY in .env'}`);
     console.log(`  Knowledge entries: ${Object.keys(KNOWLEDGE).length}\n`);
   });
