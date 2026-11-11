@@ -83,6 +83,8 @@ const QUOTA = {
   maxInlineRetryWaitMs: Number(process.env.LLM_MAX_INLINE_RETRY_WAIT_MS) || 3000,
   /** Longest cooldown we will hold after a 429. */
   maxCooldownMs: Number(process.env.LLM_MAX_COOLDOWN_MS) || 30000,
+  /** Cooldown used when the provider does not tell us how long to wait. */
+  defaultCooldownMs: Number(process.env.LLM_DEFAULT_COOLDOWN_MS) || 20000,
 };
 let providerCooldownUntil = 0;
 let providerCooldownSeconds = 0;
@@ -348,17 +350,23 @@ async function providerFetch(name, url, body, headers) {
     err.retriable = res.status === 429 || res.status >= 500;
     err.status = res.status;
     if (res.status === 429) {
-      const seconds = retryAfterSeconds(res.status, res.headers, data);
-      err.retryAfterSeconds = seconds;
+      err.retryAfterSeconds = retryAfterSeconds(res.status, res.headers, data);
       err.quota = true;
-      // Start a cooldown so we stop burning quota with doomed retries.
-      const cooldownMs = Math.min(seconds * 1000, QUOTA.maxCooldownMs);
-      providerCooldownUntil = Math.max(providerCooldownUntil, Date.now() + cooldownMs);
-      providerCooldownSeconds = Math.ceil(cooldownMs / 1000);
+      // The cooldown is armed here but only *used* if no fallback model can
+      // serve the request - see callGemini(). Arming it unconditionally would
+      // reject good fallback answers for the next 20 seconds.
+      err.cooldownMs = Math.min(err.retryAfterSeconds * 1000, QUOTA.maxCooldownMs);
     }
     throw err;
   }
   return data;
+}
+
+/** Arm the provider cooldown (used when no fallback model can help). */
+function armCooldown(err) {
+  const cooldownMs = (err && err.cooldownMs) || QUOTA.defaultCooldownMs;
+  providerCooldownUntil = Math.max(providerCooldownUntil, Date.now() + cooldownMs);
+  providerCooldownSeconds = Math.ceil(cooldownMs / 1000);
 }
 
 /**
@@ -472,11 +480,12 @@ async function callGemini(messages) {
     });
   } catch (err) {
     // Quota exhausted (429) or model retired (404): try the fallback model
-    // once before giving up.
+    // once before giving up. Only arm the cooldown if no fallback exists.
     if (err && (err.status === 429 || err.status === 404) && fallbackModel()) {
       degradeModel(`HTTP ${err.status}`);
       return callGemini(messages);
     }
+    if (err && err.quota) armCooldown(err);
     throw err;
   }
 
