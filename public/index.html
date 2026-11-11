@@ -1,1345 +1,194 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Nova - Presidency University's AI campus helpdesk. Ask about academics, attendance, examinations, placements, hostel, library, administration and events.">
-  <title>Presidency University - AI Helpdesk & Nova Agent</title>
-  <link rel="icon" type="image/png" href="assets/logo.png">
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Schibsted+Grotesk:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
-  
-  <!-- Import map for Three.js -->
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-      }
-    }
-  </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="AI-Powered University Campus Helpdesk for Presidency University. Ask about academics, exams, placements, hostel, library, administration and events." />
+  <title>AI Campus Helpdesk · Presidency University</title>
 
-  <style>
-    :root {
-      --bg: #efece6;
-      --text: #141414;
-      --dim-text: rgba(20,20,20,.55);
-      --grid-line: rgba(20,20,20,.09);
-      --brand-blue: #0b2240;
-    }
-    body {
-      background-color: var(--bg);
-      color: var(--text);
-      font-family: 'Schibsted Grotesk', sans-serif;
-      overflow-x: hidden;
-      margin: 0;
-      padding: 0;
-    }
-    .font-mono-custom {
-      font-family: 'IBM Plex Mono', monospace;
-    }
-    .brand-gradient {
-      background: conic-gradient(from 200deg, #ffb347, #ff8a3d 18%, #ff5a5f 34%, #ff3d8b 50%, #ff5a5f 66%, #ff8a3d 82%, #ffb347);
-    }
-    .brand-gradient-text {
-      background: linear-gradient(135deg, #ff8a3d, #ff3d8b);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-    .grid-guide {
-      position: fixed;
-      top: 0;
-      bottom: 0;
-      width: 1px;
-      background-color: var(--grid-line);
-      pointer-events: none;
-      z-index: 5;
-    }
-    /* Section animation reveal */
-    .rv {
-      opacity: 0;
-      transform: translateY(26px);
-      transition: opacity 1s cubic-bezier(.2,.7,.2,1), transform 1s cubic-bezier(.2,.7,.2,1);
-    }
-    .rv.active {
-      opacity: 1;
-      transform: translateY(0);
-    }
-    .cut-corner-br {
-      clip-path: polygon(0 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%);
-    }
-    .button-clip {
-      border: 1px solid rgba(20,20,20,0.2);
-      position: relative;
-    }
-    .button-clip::before {
-      content: '';
-      position: absolute;
-      top: -1px; left: -1px;
-      width: 24px; height: 100%;
-      border-top: 2px solid #ff5a5f;
-      border-left: 2px solid #ff8a3d;
-      pointer-events: none;
-    }
-    /* Hide scrollbar */
-    ::-webkit-scrollbar {
-      width: 6px;
-    }
-    ::-webkit-scrollbar-thumb {
-      background: rgba(20,20,20,0.15);
-      border-radius: 3px;
-    }
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@500;600;700&display=swap" rel="stylesheet" />
 
-    /* ---- Chat (Nova) ----------------------------------------------------- */
-    /* The design referenced .animate-scale-up but never defined it, so the
-       dialog used to appear with no transition at all. */
-    .animate-scale-up {
-      animation: nova-scale-up 0.22s cubic-bezier(.2,.8,.2,1) both;
-    }
-    @keyframes nova-scale-up {
-      from { opacity: 0; transform: translateY(14px) scale(.97); }
-      to   { opacity: 1; transform: translateY(0) scale(1); }
-    }
-    /* "Nova is thinking" dots */
-    .nova-dots {
-      display: inline-flex;
-      gap: 4px;
-      align-items: center;
-      height: 14px;
-    }
-    .nova-dots span {
-      width: 6px; height: 6px;
-      border-radius: 9999px;
-      background: rgba(20,20,20,.45);
-      animation: nova-blink 1.1s infinite ease-in-out;
-    }
-    .nova-dots span:nth-child(2) { animation-delay: .18s; }
-    .nova-dots span:nth-child(3) { animation-delay: .36s; }
-    @keyframes nova-blink {
-      0%, 80%, 100% { opacity: .25; transform: translateY(0); }
-      40%           { opacity: 1;   transform: translateY(-3px); }
-    }
-    /* Answer text spacing */
-    .nova-answer p { margin: 0 0 .5rem; }
-    .nova-answer p:last-child { margin-bottom: 0; }
-    .nova-answer ul { margin: .25rem 0 .5rem 1rem; list-style: disc; }
-    .nova-answer li { margin: .15rem 0; }
-    .nova-answer strong { font-weight: 600; color: #141414; }
-    /* Feedback row */
-    .nova-feedback button {
-      border: 1px solid rgba(20,20,20,.15);
-      border-radius: 4px;
-      padding: 1px 8px;
-      font-size: 10px;
-      letter-spacing: .08em;
-      color: rgba(20,20,20,.6);
-      background: #fff;
-      transition: all .15s ease;
-    }
-    .nova-feedback button:hover { border-color: #ff8a3d; color: #141414; }
-    .nova-feedback button[aria-pressed="true"] {
-      background: #ff8a3d; border-color: #ff8a3d; color: #fff;
-    }
-    /* Visible keyboard focus everywhere */
-    :focus-visible {
-      outline: 2px solid #ff8a3d;
-      outline-offset: 2px;
-    }
-    /* The chat dialog must not inherit the page's 3D canvas stacking */
-    #chat-modal { isolation: isolate; }
-    @media (prefers-reduced-motion: reduce) {
-      .rv { opacity: 1 !important; transform: none !important; transition: none !important; }
-      .animate-scale-up { animation: none; }
-      .nova-dots span { animation: none; opacity: .6; }
-    }
-  </style>
+  <link rel="icon" href="assets/logo.png" />
+  <link rel="stylesheet" href="style.css" />
 </head>
-<body class="relative selection:bg-rose-200 selection:text-neutral-900">
+<body>
+  <a class="skip-link" href="#chatLog">Skip to chat</a>
 
-  <!-- Vertical grid guides at 17%, 50%, 83% -->
-  <div class="grid-guide left-[17%] hidden md:block"></div>
-  <div class="grid-guide left-[50%] hidden md:block"></div>
-  <div class="grid-guide left-[83%] hidden md:block"></div>
+  <div class="app">
+    <!-- ================= Sidebar (desktop) ================= -->
+    <aside class="sidebar" id="sidebar" aria-label="Main navigation">
+      <div class="sidebar__brand">
+        <img class="brand-img brand-img--light" src="assets/logo.png" alt="Presidency University logo" />
+        <img class="brand-img brand-img--dark" src="assets/logo-white.png" alt="Presidency University logo" />
+      </div>
 
-  <!-- Three.js Canvas Container fixed background -->
-  <div id="webgl-container" class="fixed inset-0 w-full h-full pointer-events-none z-0"></div>
+      <nav class="sidebar__nav">
+        <p class="sidebar__label">Menu</p>
+        <button class="nav-link is-active" type="button" data-nav="home">
+          <span class="nav-link__icon" aria-hidden="true">🏠</span> Home
+        </button>
 
-  <!-- Top Announcement Bar (Slides up when scrolled > 40px) -->
-  <header id="top-bar" class="fixed top-0 left-0 right-0 h-[30px] z-50 bg-[#e7e3dc] border-b border-black/[0.08] flex items-center justify-between px-6 font-mono-custom text-[11px] transition-transform duration-500">
-    <div class="flex items-center gap-2">
-      <span class="font-semibold text-rose-600 bg-rose-50 px-1.5 py-0.2 rounded border border-rose-200">NEW</span>
-      <span>Presidency University AI Helpdesk V2.4 is Live • 24/7 Intelligent Student & Campus Support</span>
-    </div>
-    <div class="flex items-center gap-4">
-      <a href="#categories" class="hover:underline text-neutral-600">Browse Help Categories ↗</a>
-      <button onclick="document.getElementById('top-bar').style.transform='translateY(-100%)'" class="text-neutral-400 hover:text-black">✕</button>
-    </div>
-  </header>
+        <p class="sidebar__label">Departments</p>
+        <button class="nav-link" type="button" data-topic="Academics">
+          <span class="nav-link__icon" aria-hidden="true">📚</span> Academics
+        </button>
+        <button class="nav-link" type="button" data-topic="Examinations">
+          <span class="nav-link__icon" aria-hidden="true">📝</span> Examinations
+        </button>
+        <button class="nav-link" type="button" data-topic="Placements">
+          <span class="nav-link__icon" aria-hidden="true">💼</span> Placements
+        </button>
+        <button class="nav-link" type="button" data-topic="Hostel">
+          <span class="nav-link__icon" aria-hidden="true">🏠</span> Hostel
+        </button>
+        <button class="nav-link" type="button" data-topic="Library">
+          <span class="nav-link__icon" aria-hidden="true">📖</span> Library
+        </button>
+        <button class="nav-link" type="button" data-topic="Administration">
+          <span class="nav-link__icon" aria-hidden="true">🗂️</span> Administration
+        </button>
+      </nav>
 
-  <!-- Sticky Main Navigation -->
-  <nav id="nav-bar" class="fixed top-[30px] left-0 right-0 h-[56px] z-40 bg-[#efece6]/85 backdrop-blur-md border-b border-black/[0.08] transition-all duration-300">
-    <div class="w-full h-full flex items-center justify-between px-4 md:px-8 max-w-[1720px] mx-auto">
-      
-      <!-- Logo block aligning around 17% guide -->
-      <div class="flex items-center gap-4">
-        <img src="assets/logo.png" alt="Presidency University" class="h-9 object-contain" />
-        <div class="h-6 w-px bg-black/15 mx-1 hidden sm:block"></div>
-        <div class="flex items-center gap-2">
-          <!-- Robot Icon badge -->
-          <div class="w-6 h-6 rounded border border-orange-400/50 p-0.5 flex items-center justify-center bg-orange-50/50">
-            <div class="w-2 h-2 rounded-full bg-orange-500 animate-ping"></div>
-          </div>
-          <span class="font-mono-custom text-[13px] font-semibold tracking-wider text-neutral-800">NOVA DESK</span>
+      <div class="sidebar__foot">
+        <div class="sidebar__status">
+          <span class="dot dot--live" id="statusDot"></span>
+          <span id="statusText">Assistant online</span>
         </div>
+        <p class="sidebar__note">Answers are grounded in the official campus knowledge base.</p>
       </div>
+    </aside>
 
-      <!-- Center Helpdesk Categories Nav (Desktop) -->
-      <div class="hidden lg:flex items-center gap-6 font-mono-custom text-[11px] text-neutral-600">
-        <a href="#intro" class="hover:text-black transition">AI ASSISTANT</a>
-        <a href="#categories" class="hover:text-black transition">CATEGORIES▾</a>
-        <a href="#product" class="hover:text-black transition">CAMPUS SERVICES</a>
-        <a href="#reviews" class="hover:text-black transition">STUDENT VOICES</a>
-        <a href="#contact" class="hover:text-black transition">ESCALATE TICKET</a>
-      </div>
+    <div class="sidebar-scrim" id="sidebarScrim" hidden></div>
 
-      <!-- Right Action & Pad Cell -->
-      <div class="flex items-center gap-4 font-mono-custom text-[11px]">
-        <div class="hidden md:flex items-center border-l border-r border-black/10 px-4 py-1.5 text-neutral-600">
-          <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-2"></span>
-          Campus Bot Active
-        </div>
-        <a href="#chat-modal" onclick="openChat()" class="button-clip bg-[#efece6] hover:bg-neutral-100 text-neutral-900 font-semibold px-4 py-2 rounded text-[11px] tracking-wider transition shadow-sm flex items-center gap-2">
-          <span>•• LAUNCH NOVA BOT</span>
-        </a>
-      </div>
-    </div>
-  </nav>
+    <!-- ================= Main column ================= -->
+    <div class="main">
+      <!-- ---------- Top bar ---------- -->
+      <header class="topbar">
+        <button class="icon-btn menu-btn" id="menuToggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="sidebar">
+          <span aria-hidden="true">☰</span>
+        </button>
 
-  <!-- Vertical Scroll Rail Indicator (Right Rail) -->
-  <div class="fixed right-6 top-1/2 -translate-y-1/2 h-[270px] z-30 hidden md:flex flex-col items-center justify-between pointer-events-none">
-    <div class="relative w-4 h-full flex flex-col items-center justify-between py-2">
-      <!-- 14 Tiny Dots -->
-      <div class="flex flex-col gap-3.5 items-center">
-        <div class="w-1.5 h-1.5 rounded-full bg-black/20"></div>
-        <div class="w-1.5 h-1.5 rounded-full bg-black/20"></div>
-        <div class="w-1.5 h-1.5 rounded-full bg-black/20"></div>
-        <div class="w-1.5 h-1.5 rounded-full bg-black/20"></div>
-        <div class="w-1.5 h-1.5 rounded-full bg-black/20"></div>
-        <div class="w-1.5 h-1.5 rounded-full bg-black/20"></div>
-        <div class="w-1.5 h-1.5 rounded-full bg-black/20"></div>
-        <div class="w-1.5 h-1.5 rounded-full bg-black/20"></div>
-        <div class="w-1.5 h-1.5 rounded-full bg-black/20"></div>
-        <div class="w-1.5 h-1.5 rounded-full bg-black/20"></div>
-        <div class="w-1.5 h-1.5 rounded-full bg-black/20"></div>
-        <div class="w-1.5 h-1.5 rounded-full bg-black/20"></div>
-        <div class="w-1.5 h-1.5 rounded-full bg-black/20"></div>
-        <div class="w-1.5 h-1.5 rounded-full bg-black/20"></div>
-      </div>
-      <!-- Floating indicator badge -->
-      <div id="rail-badge" class="absolute left-[-72px] top-0 bg-neutral-900 text-neutral-100 font-mono-custom text-[10px] py-1 px-2.5 rounded tracking-widest flex items-center gap-1.5 transition-all duration-700 pointer-events-auto">
-        <span class="text-orange-400">◎</span>
-        <span id="rail-text">INTRO</span>
-      </div>
-    </div>
-    <span class="font-mono-custom text-[10px] tracking-widest text-neutral-400 mt-2">≡ INDEX</span>
-  </div>
-
-  <!-- SECTION 1: INTRO (100vh) -->
-  <section id="intro" class="relative min-h-screen w-full flex flex-col justify-between pt-28 pb-12 z-10">
-    <div class="w-full max-w-[1720px] mx-auto px-4 sm:px-8 h-full flex flex-col justify-between">
-      
-      <!-- Top Row: Interactive Prompt Box (left 17%) + University Helpdesk Services (right) -->
-      <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start mt-6">
-        
-        <!-- Left Prompt Typing Widget (17% to ~42%) -->
-        <div class="lg:col-start-3 lg:col-span-4 rv" style="transition-delay: 0.1s;">
-          <div class="relative bg-[#efece6]/90 backdrop-blur-md p-5 rounded-lg border border-black/15 shadow-sm">
-            <!-- Corner Brackets -->
-            <div class="absolute -top-1.5 -left-1.5 w-3 h-3 border-t-2 border-l-2 border-orange-500"></div>
-            <div class="absolute -top-1.5 -right-1.5 w-3 h-3 border-t-2 border-r-2 border-orange-500"></div>
-            <div class="absolute -bottom-1.5 -left-1.5 w-3 h-3 border-b-2 border-l-2 border-orange-500"></div>
-            <div class="absolute -bottom-1.5 -right-1.5 w-3 h-3 border-b-2 border-r-2 border-orange-500"></div>
-            
-            <div class="flex items-center justify-between pb-3 border-b border-black/[0.08] mb-3">
-              <div class="flex items-center gap-2">
-                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
-                <span class="font-mono-custom text-[11px] font-semibold uppercase tracking-wider text-neutral-700">Presidency Query Terminal</span>
-              </div>
-              <span class="font-mono-custom text-[10px] text-neutral-400">NOVA-AI v2.4</span>
-            </div>
-
-            <!-- Auto-typing query prompt box -->
-            <div class="min-h-[70px] font-mono-custom text-[12px] leading-relaxed text-neutral-900 bg-white/70 p-3 rounded border border-black/10">
-              <span id="prompt-typing-text"></span><span id="prompt-caret" class="inline-block w-2 h-4 bg-orange-600 align-middle ml-1 animate-pulse"></span>
-            </div>
-            
-            <!-- Sub prompt preview -->
-            <div class="mt-3 flex items-center justify-between text-[11px] font-mono-custom text-neutral-400">
-              <span>NEXT QUERY:</span>
-              <span id="next-prompt-hint" class="truncate max-w-[200px] italic">Hostel room allocation status...</span>
-            </div>
-
-            <div class="mt-4 pt-3 border-t border-black/5 flex items-center justify-between">
-              <div class="text-[11px] font-mono-custom text-neutral-500">Fast 24/7 Smart Resolutions</div>
-              <button onclick="openChat()" class="px-3 py-1 bg-neutral-900 text-white font-mono-custom text-[11px] rounded hover:bg-neutral-800 transition">Ask This ↗</button>
-            </div>
+        <div class="topbar__brand">
+          <img class="topbar__logo" src="assets/logo-white.png" alt="Presidency University" />
+          <div class="topbar__titles">
+            <h1>AI Campus Helpdesk</h1>
+            <p>Ask · Learn · Get Help</p>
           </div>
         </div>
 
-        <!-- Right Quick Directory & Status -->
-        <div class="lg:col-start-9 lg:col-span-4 rv hidden md:block" style="transition-delay: 0.2s;">
-          <div class="bg-[#efece6]/90 backdrop-blur-md border-l-2 border-orange-500 pl-5 py-2">
-            <div class="font-mono-custom text-[11px] text-neutral-500 uppercase tracking-widest mb-3">DIRECT HELP ASSISTANCE</div>
-            <ul class="space-y-2 font-mono-custom text-[12px] text-neutral-800">
-              <li class="flex items-center justify-between border-b border-black/[0.06] pb-1.5 hover:text-orange-600 cursor-pointer" onclick="selectCategory('Academics')">
-                <span>01. ACADEMICS & SYLLABUS</span>
-                <span class="text-neutral-400">INSTANT</span>
-              </li>
-              <li class="flex items-center justify-between border-b border-black/[0.06] pb-1.5 hover:text-orange-600 cursor-pointer" onclick="selectCategory('Examinations')">
-                <span>02. EXAMINATIONS & HALL TICKETS</span>
-                <span class="text-neutral-400">SYNCED</span>
-              </li>
-              <li class="flex items-center justify-between border-b border-black/[0.06] pb-1.5 hover:text-orange-600 cursor-pointer" onclick="selectCategory('Placements')">
-                <span>03. PLACEMENTS & INTERNSHIPS</span>
-                <span class="text-neutral-400">ACTIVE</span>
-              </li>
-              <li class="flex items-center justify-between border-b border-black/[0.06] pb-1.5 hover:text-orange-600 cursor-pointer" onclick="selectCategory('Hostel')">
-                <span>04. HOSTEL & MESS SERVICES</span>
-                <span class="text-neutral-400">RESOLVED</span>
-              </li>
-              <li class="flex items-center justify-between text-neutral-400 text-[11px] pt-1">
-                <span>AND 3 MORE CATEGORIES</span>
-                <span>EXPLORE ↓</span>
-              </li>
+        <div class="topbar__right">
+          <button class="icon-btn" id="themeToggle" type="button" aria-label="Toggle dark mode" title="Toggle dark mode">
+            <span class="icon-btn__light" aria-hidden="true">☀️</span>
+            <span class="icon-btn__dark" aria-hidden="true">🌙</span>
+          </button>
+          <div class="greeting">
+            <span class="greeting__wave" aria-hidden="true">👋</span>
+            <span>Hello, Student</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- ---------- Scrollable content ---------- -->
+      <main class="content">
+        <!-- Hero -->
+        <section class="hero">
+          <div class="hero__text">
+            <span class="hero__eyebrow">AI-Powered Support</span>
+            <h2>Welcome to Presidency University Campus Helpdesk!</h2>
+            <p>Your Smart Assistant for all University Queries</p>
+            <ul class="hero__points">
+              <li><span aria-hidden="true">✅</span> Academics &amp; attendance</li>
+              <li><span aria-hidden="true">✅</span> Exams, placements &amp; events</li>
+              <li><span aria-hidden="true">✅</span> Hostel, library &amp; records</li>
             </ul>
           </div>
-        </div>
-      </div>
-
-      <!-- Bottom Headline and University Credentials -->
-      <div class="mt-12 rv" style="transition-delay: 0.3s;">
-        <div class="font-mono-custom text-[12px] tracking-widest text-neutral-500 uppercase mb-2">
-          PRESIDENCY UNIVERSITY • AI CAMPUS COMPANION
-        </div>
-        
-        <!-- Big Dual Box Headline -->
-        <div class="flex flex-col md:flex-row items-start gap-4 mb-4">
-          <!-- Box 1: Thinking with cut corner -->
-          <div class="border-2 border-orange-500 px-6 py-2 rounded cut-corner-br bg-[#efece6]/85 backdrop-blur-md">
-            <h1 class="text-4xl md:text-6xl lg:text-7xl font-light tracking-tight text-neutral-900">
-              <span class="font-bold">Autonomous</span> Campus
-            </h1>
+          <div class="hero__art" aria-hidden="true">
+            <svg viewBox="0 0 220 180" role="img" aria-label="Friendly campus assistant robot">
+              <defs>
+                <linearGradient id="bodyGrad" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#4F8CFF" />
+                  <stop offset="100%" stop-color="#0B2A5B" />
+                </linearGradient>
+              </defs>
+              <ellipse cx="110" cy="164" rx="66" ry="10" fill="#0B2A5B" opacity=".12" />
+              <line x1="110" y1="18" x2="110" y2="6" stroke="#0B2A5B" stroke-width="4" stroke-linecap="round" />
+              <circle cx="110" cy="4" r="6" fill="#3B82F6" />
+              <rect x="46" y="24" width="128" height="94" rx="26" fill="url(#bodyGrad)" />
+              <rect x="62" y="42" width="96" height="56" rx="18" fill="#EAF2FF" />
+              <circle cx="88" cy="66" r="9" fill="#0B2A5B" />
+              <circle cx="132" cy="66" r="9" fill="#0B2A5B" />
+              <circle cx="91" cy="63" r="3" fill="#fff" />
+              <circle cx="135" cy="63" r="3" fill="#fff" />
+              <rect x="94" y="84" width="32" height="7" rx="3.5" fill="#0B2A5B" opacity=".55" />
+              <rect x="34" y="118" width="152" height="18" rx="9" fill="#13386F" />
+              <rect x="70" y="136" width="18" height="24" rx="6" fill="#0B2A5B" />
+              <rect x="132" y="136" width="18" height="24" rx="6" fill="#0B2A5B" />
+              <path d="M174 78h20a10 10 0 0 1 0 20h-20" fill="none" stroke="#3B82F6" stroke-width="5" stroke-linecap="round" />
+              <circle cx="199" cy="88" r="8" fill="#3B82F6" />
+            </svg>
           </div>
-          <!-- Box 2: Helpdesk with gradient outline -->
-          <div class="border-2 border-pink-500 px-6 py-2 rounded bg-[#efece6]/85 backdrop-blur-md">
-            <h1 class="text-4xl md:text-6xl lg:text-7xl font-light tracking-tight brand-gradient-text">
-              Intelligent Helpdesk
-            </h1>
-          </div>
-        </div>
+        </section>
 
-        <div class="flex flex-col md:flex-row items-baseline justify-between gap-6 pt-4 border-t border-black/10">
-          <p class="max-w-xl text-[15px] text-neutral-700 leading-relaxed bg-[#efece6]/80 p-2 rounded">
-            Gain more knowledge, reach greater heights. Presidency University's 3D AI agent Nova provides instantaneous, authenticated support across student academics, examination dockets, corporate placements, hostel facilities, and campus administration.
+        <!-- Category chips -->
+        <section class="topics" aria-labelledby="topicsHeading">
+          <h2 class="section-title" id="topicsHeading">Browse by topic</h2>
+          <div class="chips" id="categoryChips">
+            <button class="chip" type="button" data-topic="Academics"><span aria-hidden="true">📚</span> Academics</button>
+            <button class="chip" type="button" data-topic="Examinations"><span aria-hidden="true">📝</span> Examinations</button>
+            <button class="chip" type="button" data-topic="Placements"><span aria-hidden="true">💼</span> Placements</button>
+            <button class="chip" type="button" data-topic="Hostel"><span aria-hidden="true">🏠</span> Hostel</button>
+            <button class="chip" type="button" data-topic="Library"><span aria-hidden="true">📖</span> Library</button>
+            <button class="chip" type="button" data-topic="Administration"><span aria-hidden="true">🗂️</span> Administration</button>
+          </div>
+        </section>
+
+        <!-- Chat -->
+        <section class="chat-card" aria-labelledby="chatHeading">
+          <div class="chat-card__head">
+            <h2 class="section-title" id="chatHeading">Chat with the Campus Assistant</h2>
+            <span class="pill" id="modelPill">AI · loading…</span>
+          </div>
+
+          <div class="chat-log" id="chatLog" role="log" aria-live="polite" aria-label="Conversation"></div>
+
+          <form class="composer" id="chatForm" autocomplete="off">
+            <div class="composer__field">
+              <label class="sr-only" for="messageInput">Your question</label>
+              <textarea
+                id="messageInput"
+                rows="1"
+                maxlength="500"
+                placeholder="For example: Whom should I contact for placement training?"
+                aria-describedby="charCount"
+              ></textarea>
+              <span class="composer__count" id="charCount">0/500</span>
+            </div>
+            <div class="composer__actions">
+              <button class="btn btn--primary" id="sendBtn" type="submit">
+                <span aria-hidden="true">➤</span> Send
+              </button>
+              <button class="btn btn--ghost" id="clearBtn" type="button">Clear Chat</button>
+            </div>
+          </form>
+
+          <div class="suggestions">
+            <span class="suggestions__label">Try asking:</span>
+            <div class="suggestions__list" id="suggestionList"></div>
+          </div>
+        </section>
+
+        <footer class="footer">
+          <p><strong>Presidency University</strong> · AI Campus Helpdesk prototype (Technopia 2.0)</p>
+          <p class="footer__meta">
+            Answers are generated by an LLM grounded in a fixed university knowledge base and may be
+            inaccurate. For official information, always use the university's official channels.
           </p>
-          <div class="flex items-center gap-6 font-mono-custom text-[12px]">
-            <a href="#categories" class="flex items-center gap-2 text-neutral-900 hover:text-orange-600 font-semibold">
-              <span>EXPLORE ALL 7 CATEGORIES</span>
-              <span class="animate-bounce">↓</span>
-            </a>
-          </div>
-        </div>
-      </div>
-
-    </div>
-  </section>
-
-  <!-- HELP DESK CATEGORIES SECTION -->
-  <section id="categories" class="relative py-24 z-10 border-t border-b border-black/[0.08] bg-[#f5f2ec]/90 backdrop-blur-md">
-    <div class="max-w-[1720px] mx-auto px-4 sm:px-8">
-      
-      <!-- Section Header -->
-      <div class="flex flex-col md:flex-row md:items-end justify-between mb-12 rv">
-        <div>
-          <div class="flex items-center gap-2 font-mono-custom text-[11px] text-orange-600 font-semibold tracking-widest uppercase mb-2">
-            <span class="w-2 h-2 rounded-full bg-orange-500"></span>
-            Unified University Help Desk
-          </div>
-          <h2 class="text-3xl md:text-5xl font-light tracking-tight text-neutral-900">
-            Select a Help Category to <span class="font-semibold underline decoration-orange-400">Interact with Nova</span>
-          </h2>
-        </div>
-        <p class="font-mono-custom text-[12px] text-neutral-500 mt-4 md:mt-0">
-          POWERED BY OFFICIAL PRESIDENCY UNIVERSITY REPOSITORIES
-        </p>
-      </div>
-
-      <!-- Categories Grid (All 7 required categories) -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        
-        <!-- 1. Academics -->
-        <div onclick="selectCategory('Academics')" class="group p-6 bg-white/80 hover:bg-white rounded-lg border border-black/10 hover:border-orange-500 transition-all duration-300 shadow-sm cursor-pointer rv">
-          <div class="flex items-center justify-between mb-4">
-            <span class="font-mono-custom text-[11px] px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-medium">01 // ACADEMICS</span>
-            <span class="text-neutral-300 group-hover:text-orange-500 transition-colors">↗</span>
-          </div>
-          <h3 class="text-xl font-bold text-neutral-900 mb-2 group-hover:text-orange-600 transition">Academics</h3>
-          <p class="text-sm text-neutral-600 mb-4 leading-relaxed">
-            Course registration, credit transfer, electives, faculty hours, attendance tracking & curriculum handbooks.
-          </p>
-          <div class="font-mono-custom text-[11px] text-neutral-400 group-hover:text-neutral-700 transition flex items-center gap-1.5">
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> 99.4% Automated Response
-          </div>
-        </div>
-
-        <!-- 2. Examinations -->
-        <div onclick="selectCategory('Examinations')" class="group p-6 bg-white/80 hover:bg-white rounded-lg border border-black/10 hover:border-orange-500 transition-all duration-300 shadow-sm cursor-pointer rv" style="transition-delay: 0.1s;">
-          <div class="flex items-center justify-between mb-4">
-            <span class="font-mono-custom text-[11px] px-2 py-0.5 rounded bg-amber-50 text-amber-700 font-medium">02 // EXAMS</span>
-            <span class="text-neutral-300 group-hover:text-orange-500 transition-colors">↗</span>
-          </div>
-          <h3 class="text-xl font-bold text-neutral-900 mb-2 group-hover:text-orange-600 transition">Examinations</h3>
-          <p class="text-sm text-neutral-600 mb-4 leading-relaxed">
-            Exam schedules, hall tickets, revaluation, grade cards, backlog clearing, and convocation queries.
-          </p>
-          <div class="font-mono-custom text-[11px] text-neutral-400 group-hover:text-neutral-700 transition flex items-center gap-1.5">
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Hall Ticket Bot Ready
-          </div>
-        </div>
-
-        <!-- 3. Placements -->
-        <div onclick="selectCategory('Placements')" class="group p-6 bg-white/80 hover:bg-white rounded-lg border border-black/10 hover:border-orange-500 transition-all duration-300 shadow-sm cursor-pointer rv" style="transition-delay: 0.15s;">
-          <div class="flex items-center justify-between mb-4">
-            <span class="font-mono-custom text-[11px] px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-medium">03 // CAREERS</span>
-            <span class="text-neutral-300 group-hover:text-orange-500 transition-colors">↗</span>
-          </div>
-          <h3 class="text-xl font-bold text-neutral-900 mb-2 group-hover:text-orange-600 transition">Placements</h3>
-          <p class="text-sm text-neutral-600 mb-4 leading-relaxed">
-            Campus recruitment drives, internship offers, mock interview simulations, resume reviews & company criteria.
-          </p>
-          <div class="font-mono-custom text-[11px] text-neutral-400 group-hover:text-neutral-700 transition flex items-center gap-1.5">
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> 500+ Partner Companies
-          </div>
-        </div>
-
-        <!-- 4. Hostel -->
-        <div onclick="selectCategory('Hostel')" class="group p-6 bg-white/80 hover:bg-white rounded-lg border border-black/10 hover:border-orange-500 transition-all duration-300 shadow-sm cursor-pointer rv" style="transition-delay: 0.2s;">
-          <div class="flex items-center justify-between mb-4">
-            <span class="font-mono-custom text-[11px] px-2 py-0.5 rounded bg-purple-50 text-purple-700 font-medium">04 // RESIDENCE</span>
-            <span class="text-neutral-300 group-hover:text-orange-500 transition-colors">↗</span>
-          </div>
-          <h3 class="text-xl font-bold text-neutral-900 mb-2 group-hover:text-orange-600 transition">Hostel & Living</h3>
-          <p class="text-sm text-neutral-600 mb-4 leading-relaxed">
-            Room allotment, mess menu feedback, warden permissions, maintenance requests, gate pass & Wi-Fi support.
-          </p>
-          <div class="font-mono-custom text-[11px] text-neutral-400 group-hover:text-neutral-700 transition flex items-center gap-1.5">
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Immediate Warden Dispatch
-          </div>
-        </div>
-
-        <!-- 5. Library -->
-        <div onclick="selectCategory('Library')" class="group p-6 bg-white/80 hover:bg-white rounded-lg border border-black/10 hover:border-orange-500 transition-all duration-300 shadow-sm cursor-pointer rv" style="transition-delay: 0.25s;">
-          <div class="flex items-center justify-between mb-4">
-            <span class="font-mono-custom text-[11px] px-2 py-0.5 rounded bg-rose-50 text-rose-700 font-medium">05 // KNOWLEDGE</span>
-            <span class="text-neutral-300 group-hover:text-orange-500 transition-colors">↗</span>
-          </div>
-          <h3 class="text-xl font-bold text-neutral-900 mb-2 group-hover:text-orange-600 transition">Library</h3>
-          <p class="text-sm text-neutral-600 mb-4 leading-relaxed">
-            Digital book renewals, IEEE/JSTOR research journals, reading room slot bookings & plagiarism checking.
-          </p>
-          <div class="font-mono-custom text-[11px] text-neutral-400 group-hover:text-neutral-700 transition flex items-center gap-1.5">
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Digital Catalog Connected
-          </div>
-        </div>
-
-        <!-- 6. Administration -->
-        <div onclick="selectCategory('Administration')" class="group p-6 bg-white/80 hover:bg-white rounded-lg border border-black/10 hover:border-orange-500 transition-all duration-300 shadow-sm cursor-pointer rv" style="transition-delay: 0.3s;">
-          <div class="flex items-center justify-between mb-4">
-            <span class="font-mono-custom text-[11px] px-2 py-0.5 rounded bg-cyan-50 text-cyan-700 font-medium">06 // GOVERNANCE</span>
-            <span class="text-neutral-300 group-hover:text-orange-500 transition-colors">↗</span>
-          </div>
-          <h3 class="text-xl font-bold text-neutral-900 mb-2 group-hover:text-orange-600 transition">Administration</h3>
-          <p class="text-sm text-neutral-600 mb-4 leading-relaxed">
-            Fee payments, scholarship disbursements, bonafide certificates, ID card re-issuance & grievance handling.
-          </p>
-          <div class="font-mono-custom text-[11px] text-neutral-400 group-hover:text-neutral-700 transition flex items-center gap-1.5">
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Verified Digital Seals
-          </div>
-        </div>
-
-        <!-- 7. Events -->
-        <div onclick="selectCategory('Events')" class="group p-6 bg-white/80 hover:bg-white rounded-lg border border-black/10 hover:border-orange-500 transition-all duration-300 shadow-sm cursor-pointer rv" style="transition-delay: 0.35s;">
-          <div class="flex items-center justify-between mb-4">
-            <span class="font-mono-custom text-[11px] px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 font-medium">07 // CAMPUS LIFE</span>
-            <span class="text-neutral-300 group-hover:text-orange-500 transition-colors">↗</span>
-          </div>
-          <h3 class="text-xl font-bold text-neutral-900 mb-2 group-hover:text-orange-600 transition">Events & Clubs</h3>
-          <p class="text-sm text-neutral-600 mb-4 leading-relaxed">
-            Cultural fests, hackathons, sports tournaments, club registrations, guest lectures & auditorium schedules.
-          </p>
-          <div class="font-mono-custom text-[11px] text-neutral-400 group-hover:text-neutral-700 transition flex items-center gap-1.5">
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Live Event Schedules
-          </div>
-        </div>
-
-        <!-- 8. Interactive AI Launcher Card -->
-        <div onclick="openChat()" class="p-6 bg-gradient-to-br from-neutral-900 to-neutral-800 text-white rounded-lg border border-black/20 flex flex-col justify-between shadow-lg cursor-pointer rv" style="transition-delay: 0.4s;">
-          <div>
-            <div class="flex items-center justify-between mb-3">
-              <span class="font-mono-custom text-[11px] px-2 py-0.5 rounded bg-orange-500/20 text-orange-400 font-medium">AI ASSISTANT</span>
-              <span class="w-2.5 h-2.5 rounded-full bg-orange-500 animate-ping"></span>
-            </div>
-            <h3 class="text-xl font-bold mb-2">Speak to Nova 3D</h3>
-            <p class="text-xs text-neutral-300 leading-relaxed">
-              Ask natural queries in English or regional languages. Nova parses university bylaws and returns direct steps.
-            </p>
-          </div>
-          <div class="mt-4 pt-3 border-t border-white/10 flex items-center justify-between font-mono-custom text-[11px] text-orange-400">
-            <span>LAUNCH SESSION</span>
-            <span>→</span>
-          </div>
-        </div>
-
-      </div>
-
-    </div>
-  </section>
-
-  <!-- SECTION 2: PRODUCT / DEEP CAPABILITIES (100vh) -->
-  <section id="product" class="relative min-h-screen w-full flex flex-col justify-between py-24 z-10">
-    <div class="w-full max-w-[1720px] mx-auto px-4 sm:px-8 h-full flex flex-col justify-between">
-      
-      <!-- Top Dynamic Sliding Strip Carousel -->
-      <div class="rv">
-        <div class="font-mono-custom text-[11px] text-neutral-500 uppercase tracking-widest mb-3 pl-2">
-          AUTOMATED CAMPUS KNOWLEDGE ENGINE
-        </div>
-        <div class="w-full overflow-hidden border-y border-black/10 py-3 bg-[#efece6]/85 backdrop-blur-md">
-          <div id="tab-carousel-inner" class="flex transition-transform duration-700 ease-[cubic-bezier(.65,0,.2,1)]" style="transform: translateX(0px);">
-            <!-- Carousel items dynamically managed or styled -->
-            <div class="carousel-item min-w-[320px] md:min-w-[400px] border-r border-black/10 px-6 py-2 flex items-center gap-4">
-              <span class="font-mono-custom text-xl font-bold text-orange-600">01</span>
-              <div>
-                <div class="font-bold text-sm text-neutral-900">Instant Syllabus AI</div>
-                <div class="text-xs text-neutral-500">Realtime module references & PYQs</div>
-              </div>
-            </div>
-            <div class="carousel-item min-w-[320px] md:min-w-[400px] border-r border-black/10 px-6 py-2 flex items-center gap-4">
-              <span class="font-mono-custom text-xl font-bold text-orange-600">02</span>
-              <div>
-                <div class="font-bold text-sm text-neutral-900">Hall Ticket & Seat Finder</div>
-                <div class="text-xs text-neutral-500">Automated examination room tracker</div>
-              </div>
-            </div>
-            <div class="carousel-item min-w-[320px] md:min-w-[400px] border-r border-black/10 px-6 py-2 flex items-center gap-4">
-              <span class="font-mono-custom text-xl font-bold text-orange-600">03</span>
-              <div>
-                <div class="font-bold text-sm text-neutral-900">Placement ATS Optimizer</div>
-                <div class="text-xs text-neutral-500">Presidency placement cell compliance</div>
-              </div>
-            </div>
-            <div class="carousel-item min-w-[320px] md:min-w-[400px] border-r border-black/10 px-6 py-2 flex items-center gap-4">
-              <span class="font-mono-custom text-xl font-bold text-orange-600">04</span>
-              <div>
-                <div class="font-bold text-sm text-neutral-900">E-Library Search & Issue</div>
-                <div class="text-xs text-neutral-500">Instant ISBN booking & reserve stack</div>
-              </div>
-            </div>
-            <div class="carousel-item min-w-[320px] md:min-w-[400px] border-r border-black/10 px-6 py-2 flex items-center gap-4">
-              <span class="font-mono-custom text-xl font-bold text-orange-600">05</span>
-              <div>
-                <div class="font-bold text-sm text-neutral-900">Hostel Pass & Grievance</div>
-                <div class="text-xs text-neutral-500">Warden digital signatures in &lt; 5 mins</div>
-              </div>
-            </div>
-            <div class="carousel-item min-w-[320px] md:min-w-[400px] border-r border-black/10 px-6 py-2 flex items-center gap-4">
-              <span class="font-mono-custom text-xl font-bold text-orange-600">06</span>
-              <div>
-                <div class="font-bold text-sm text-neutral-900">Bonafide Certificate Gen</div>
-                <div class="text-xs text-neutral-500">Direct university registrar verification</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Bottom Headline and Key Stats (Close up camera angle on Robot head) -->
-      <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-end my-12 rv">
-        <div class="lg:col-span-6 bg-[#efece6]/90 backdrop-blur-md p-6 rounded-lg border border-black/10">
-          <div class="font-mono-custom text-[11px] text-neutral-500 mb-2">·· INTERFACE V2</div>
-          <div class="inline-block border border-black/20 px-3 py-1 rounded text-neutral-800 text-sm font-mono-custom mb-3">
-            Your Gateway
-          </div>
-          <h2 class="text-4xl md:text-5xl font-light text-neutral-900 tracking-tight leading-tight">
-            To Campus Intelligence & <span class="font-bold text-orange-600">Rapid Assistance</span>
-          </h2>
-          <p class="text-neutral-600 text-sm mt-4 leading-relaxed">
-            Nova observes real-time university database feeds. It eliminates hours standing outside administrative counters by handling documentation, verification, and queries right through this intuitive conversational hub.
-          </p>
-        </div>
-
-        <div class="lg:col-span-6 flex flex-wrap gap-4 justify-start lg:justify-end">
-          <div class="bg-white/80 p-5 rounded border border-black/10 min-w-[160px]">
-            <div class="font-mono-custom text-2xl font-bold text-neutral-900">&lt; 15s</div>
-            <div class="text-xs text-neutral-500 mt-1">Average Query Resolution</div>
-          </div>
-          <div class="bg-white/80 p-5 rounded border border-black/10 min-w-[160px]">
-            <div class="font-mono-custom text-2xl font-bold text-neutral-900">18,000+</div>
-            <div class="text-xs text-neutral-500 mt-1">Active Students Supported</div>
-          </div>
-          <div class="bg-white/80 p-5 rounded border border-black/10 min-w-[160px]">
-            <div class="font-mono-custom text-2xl font-bold text-neutral-900">7 Core</div>
-            <div class="text-xs text-neutral-500 mt-1">Departments Integrated</div>
-          </div>
-        </div>
-      </div>
-
-    </div>
-  </section>
-
-  <!-- SECTION 3: REVIEWS / STUDENT TESTIMONIALS (100vh) -->
-  <section id="reviews" class="relative min-h-screen w-full flex flex-col justify-between py-24 z-10 border-t border-black/[0.08]">
-    <div class="w-full max-w-[1720px] mx-auto px-4 sm:px-8 h-full flex flex-col justify-between">
-      
-      <!-- Header Strip: TSTMNL 01 + Info -->
-      <div class="border-b border-black/10 pb-4 flex items-center justify-between rv">
-        <div class="flex items-center gap-4">
-          <span class="font-mono-custom text-[11px] bg-neutral-900 text-white px-2 py-0.5 rounded">[ TSTMNL ]</span>
-          <span id="review-index-num" class="font-mono-custom text-[11px] text-neutral-500">01 / 03</span>
-          <div class="h-4 w-px bg-black/15"></div>
-          <span class="font-mono-custom text-[11px] text-neutral-600 hidden sm:inline">CAMPUS VOICES • VERIFIED REVIEWS</span>
-        </div>
-        <div class="font-mono-custom text-[11px] text-neutral-400">
-          STUDENT & FACULTY SATISFACTION
-        </div>
-      </div>
-
-      <!-- Main Quote Display area with smooth swap -->
-      <div class="my-auto py-12 max-w-3xl rv">
-        <!-- Big Quote mark visual -->
-        <div class="text-6xl text-orange-400 font-serif leading-none mb-4 select-none">“</div>
-        <div id="review-content" class="transition-all duration-400">
-          <p id="review-text" class="text-2xl sm:text-3xl md:text-4xl font-normal text-neutral-900 leading-snug tracking-tight bg-[#efece6]/90 p-4 rounded-lg">
-            Finding previous year exam papers and getting my hall ticket cleared took seconds instead of waiting in line at the Dean's office. Nova is indispensable during semester finals.
-          </p>
-          <div class="mt-6 flex items-center gap-4 pl-4">
-            <!-- Inline SVG Avatar -->
-            <div class="w-12 h-12 rounded-full overflow-hidden bg-neutral-200 border-2 border-orange-500 flex-shrink-0">
-              <svg viewBox="0 0 100 100" class="w-full h-full">
-                <rect width="100" height="100" fill="#fde68a" />
-                <circle cx="50" cy="40" r="22" fill="#0f172a" />
-                <circle cx="50" cy="95" r="40" fill="#3b82f6" />
-              </svg>
-            </div>
-            <div>
-              <div id="review-author" class="font-bold text-neutral-900 text-base">Aarav Nair</div>
-              <div id="review-role" class="font-mono-custom text-[11px] text-neutral-500">B.Tech Computer Science, 6th Sem • Presidency University</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Next button & Try for yourself -->
-        <div class="mt-10 flex items-center gap-6 pl-4">
-          <div class="flex items-center gap-2">
-            <button onclick="prevReview()" class="w-10 h-10 rounded border border-black/20 hover:border-black flex items-center justify-center bg-white/70 hover:bg-white text-neutral-800 transition font-mono-custom">←</button>
-            <button onclick="nextReview()" class="w-10 h-10 rounded border border-black/20 hover:border-black flex items-center justify-center bg-white/70 hover:bg-white text-neutral-800 transition font-mono-custom">→</button>
-          </div>
-          <button onclick="openChat()" class="border-l border-black/20 pl-4 text-xs font-mono-custom text-orange-600 hover:text-orange-700 underline font-semibold">
-            Try Nova for yourself (Click Here) ↗
-          </button>
-        </div>
-      </div>
-
-      <!-- Footer area -->
-      <footer class="pt-8 border-t border-black/10 flex flex-col sm:flex-row items-center justify-between text-xs font-mono-custom text-neutral-500">
-        <div class="flex items-center gap-3">
-          <span>PRESIDENCY UNIVERSITY AI HELPDESK</span>
-          <span>•</span>
-          <span>© 2026 ALL RIGHTS RESERVED</span>
-        </div>
-        <div class="mt-2 sm:mt-0 flex gap-4">
-          <a href="#" class="hover:underline">Privacy Policy</a>
-          <a href="#" class="hover:underline">IT Bylaws</a>
-          <a href="#" class="hover:underline">Campus Portal</a>
-        </div>
-      </footer>
-
-    </div>
-  </section>
-
-  <!-- INTERACTIVE CHATBOT MODAL (backed by the real /api/chat endpoint) -->
-  <div id="chat-modal" class="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm hidden flex items-center justify-center p-4"
-       role="dialog" aria-modal="true" aria-labelledby="nova-modal-title">
-    <div class="bg-[#efece6] w-full max-w-2xl rounded-xl border border-black/20 shadow-2xl overflow-hidden flex flex-col h-[600px] animate-scale-up">
-
-      <!-- Modal Header -->
-      <div class="bg-[#e4e0d7] px-6 py-4 border-b border-black/10 flex items-center justify-between gap-3">
-        <div class="flex items-center gap-3 min-w-0">
-          <div class="w-8 h-8 rounded-full bg-orange-500 flex items-center justify-center text-white font-mono-custom font-bold text-xs shadow-inner flex-shrink-0">
-            N
-          </div>
-          <div class="min-w-0">
-            <div class="font-bold text-neutral-900 text-sm flex items-center gap-2">
-              <span id="nova-modal-title">Nova Campus AI Assistant</span>
-              <span id="nova-status-dot" class="w-2 h-2 rounded-full bg-neutral-400 flex-shrink-0"></span>
-            </div>
-            <div class="font-mono-custom text-[10px] text-neutral-500 truncate">
-              Presidency University Official Helpdesk &middot; <span id="nova-model-pill">connecting&hellip;</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Selected Category indicator, Clear chat & Close -->
-        <div class="flex items-center gap-2 flex-shrink-0">
-          <span id="active-modal-category" class="font-mono-custom text-[10px] bg-orange-100 text-orange-800 px-2 py-0.5 rounded border border-orange-300">
-            GENERAL INQUIRY
-          </span>
-          <button id="nova-clear" type="button" class="font-mono-custom text-[10px] tracking-wider px-2 py-1 rounded border border-black/15 bg-white/70 hover:bg-white text-neutral-600 transition">
-            CLEAR
-          </button>
-          <button id="nova-close" type="button" class="text-neutral-500 hover:text-black font-bold text-lg p-1" aria-label="Close chat">&times;</button>
-        </div>
-      </div>
-
-      <!-- Quick category pills inside chat -->
-      <div class="bg-[#f0ece5] px-4 py-2 border-b border-black/5 flex gap-1.5 overflow-x-auto text-[11px] font-mono-custom">
-        <button data-chat-topic="Academics" class="px-2.5 py-1 rounded bg-white hover:bg-neutral-100 border border-black/10 text-neutral-700 whitespace-nowrap">Academics</button>
-        <button data-chat-topic="Examinations" class="px-2.5 py-1 rounded bg-white hover:bg-neutral-100 border border-black/10 text-neutral-700 whitespace-nowrap">Examinations</button>
-        <button data-chat-topic="Placements" class="px-2.5 py-1 rounded bg-white hover:bg-neutral-100 border border-black/10 text-neutral-700 whitespace-nowrap">Placements</button>
-        <button data-chat-topic="Hostel" class="px-2.5 py-1 rounded bg-white hover:bg-neutral-100 border border-black/10 text-neutral-700 whitespace-nowrap">Hostel</button>
-        <button data-chat-topic="Library" class="px-2.5 py-1 rounded bg-white hover:bg-neutral-100 border border-black/10 text-neutral-700 whitespace-nowrap">Library</button>
-        <button data-chat-topic="Administration" class="px-2.5 py-1 rounded bg-white hover:bg-neutral-100 border border-black/10 text-neutral-700 whitespace-nowrap">Administration</button>
-        <button data-chat-topic="Events" class="px-2.5 py-1 rounded bg-white hover:bg-neutral-100 border border-black/10 text-neutral-700 whitespace-nowrap">Events</button>
-      </div>
-
-      <!-- Chat Messages Container -->
-      <div id="chat-messages" class="flex-1 overflow-y-auto p-6 space-y-4 font-sans text-sm" role="log" aria-live="polite" aria-label="Conversation with Nova"></div>
-
-      <!-- Chat Input Field -->
-      <div class="p-4 bg-[#e8e4db] border-t border-black/10">
-        <form id="chat-form" class="flex gap-2">
-          <label class="sr-only" for="chat-input">Ask Nova a question</label>
-          <input id="chat-input" type="text" maxlength="500" autocomplete="off"
-                 placeholder="Type your query here (e.g. 'How do I raise a hostel complaint?')..."
-                 class="flex-1 px-4 py-2.5 rounded border border-black/20 focus:outline-none focus:border-orange-500 text-sm bg-white" />
-          <button id="nova-send" type="submit" class="bg-neutral-900 hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed text-white px-5 py-2.5 rounded font-mono-custom text-xs font-semibold tracking-wider transition">
-            SEND
-          </button>
-        </form>
-
-        <!-- Suggested questions -->
-        <div id="nova-suggestions" class="mt-3 flex flex-wrap gap-1.5"></div>
-
-        <div class="mt-2 text-center text-[10px] font-mono-custom text-neutral-500">
-          Official University Knowledge Base &bull; Fast &amp; Confidential
-        </div>
-      </div>
-
+        </footer>
+      </main>
     </div>
   </div>
-
-  <!-- THREE.JS 3D ROBOT & APPLICATION JAVASCRIPT -->
-  <script type="module">
-    import * as THREE from 'three';
-    import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-
-    // The 3D hero is decorative: if WebGL is missing or the CDN is blocked the
-    // rest of the page (chat, navigation, copy) must keep working, so the whole
-    // scene is isolated in a try/catch.
-    (() => {
-    try {
-
-    // --- State & Setup ---
-    const container = document.getElementById('webgl-container');
-    let width = window.innerWidth;
-    let height = window.innerHeight;
-
-    // Renderer
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.05;
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    container.appendChild(renderer.domElement);
-
-    // Scene & Camera
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(30, width / height, 0.1, 100);
-    camera.position.set(0, 1.1, 11.6);
-
-    // Environment map using RoomEnvironment
-    const pmremGenerator = new THREE.PMREMGenerator(renderer);
-    pmremGenerator.compileEquirectangularShader();
-    const roomEnv = new RoomEnvironment();
-    const envTexture = pmremGenerator.fromScene(roomEnv, 0.04).texture;
-    scene.environment = envTexture;
-
-    // Lights
-    const hemiLight = new THREE.HemisphereLight(0xfff6ee, 0xd9d2c8, 0.7);
-    scene.add(hemiLight);
-
-    const keyLight = new THREE.DirectionalLight(0xfff3e6, 1.7);
-    keyLight.position.set(-3, 5, 4);
-    keyLight.castShadow = true;
-    keyLight.shadow.mapSize.width = 1024;
-    keyLight.shadow.mapSize.height = 1024;
-    keyLight.shadow.radius = 6;
-    keyLight.shadow.bias = -0.0005;
-    scene.add(keyLight);
-
-    const rimLight = new THREE.DirectionalLight(0xfff0e6, 1.2);
-    rimLight.position.set(4, 2, -4);
-    scene.add(rimLight);
-
-    const fillLight = new THREE.PointLight(0xff9a6a, 2.2, 6);
-    fillLight.position.set(-3.2, 1.2, 0.6);
-    scene.add(fillLight);
-
-    // --- Dynamic Textures ---
-    // 1. Ring Gradient Texture (conic gradient)
-    const ringCanvas = document.createElement('canvas');
-    ringCanvas.width = 512;
-    ringCanvas.height = 512;
-    const rCtx = ringCanvas.getContext('2d');
-    const grad = rCtx.createConicGradient(3.49, 256, 256);
-    grad.addColorStop(0, '#ffb347');
-    grad.addColorStop(0.18, '#ff8a3d');
-    grad.addColorStop(0.34, '#ff5a5f');
-    grad.addColorStop(0.50, '#ff3d8b');
-    grad.addColorStop(0.66, '#ff5a5f');
-    grad.addColorStop(0.82, '#ff8a3d');
-    grad.addColorStop(1.0, '#ffb347');
-    rCtx.fillStyle = grad;
-    rCtx.fillRect(0, 0, 512, 512);
-    const ringTexture = new THREE.CanvasTexture(ringCanvas);
-
-    // 2. Face Canvas (Eyes + Quote)
-    const faceCanvas = document.createElement('canvas');
-    faceCanvas.width = 512;
-    faceCanvas.height = 512;
-    const fCtx = faceCanvas.getContext('2d');
-    const faceTexture = new THREE.CanvasTexture(faceCanvas);
-
-    let blinkScaleY = 1.0;
-    let nextBlinkTime = performance.now() + 3000;
-    let isBlinking = false;
-    let blinkStartTime = 0;
-    let quoteModeAlpha = 0.0;
-    let targetQuoteMode = false;
-
-    function renderFace() {
-      fCtx.fillStyle = '#0a0a0c';
-      fCtx.fillRect(0, 0, 512, 512);
-
-      fCtx.shadowColor = '#ffffff';
-      fCtx.shadowBlur = 18;
-
-      // Draw normal glowing Eyes if not fully in quote mode
-      if (quoteModeAlpha < 0.98) {
-        fCtx.save();
-        fCtx.globalAlpha = 1.0 - quoteModeAlpha;
-        fCtx.fillStyle = '#ffffff';
-
-        // Left Eye
-        fCtx.beginPath();
-        fCtx.ellipse(196, 262, 30, Math.max(2, 38 * blinkScaleY), 0, 0, Math.PI * 2);
-        fCtx.fill();
-
-        // Right Eye
-        fCtx.beginPath();
-        fCtx.ellipse(316, 252, 30, Math.max(2, 38 * blinkScaleY), 0, 0, Math.PI * 2);
-        fCtx.fill();
-        fCtx.restore();
-      }
-
-      // Draw Quote mark if active
-      if (quoteModeAlpha > 0.02) {
-        fCtx.save();
-        fCtx.globalAlpha = quoteModeAlpha;
-        fCtx.fillStyle = '#ffffff';
-        fCtx.font = '900 520px "Arial Black", sans-serif';
-        fCtx.textAlign = 'center';
-        fCtx.textBaseline = 'middle';
-        fCtx.fillText('“', 256, 380);
-        fCtx.restore();
-      }
-
-      faceTexture.needsUpdate = true;
-    }
-
-    // --- Materials ---
-    const shellMat = new THREE.MeshPhysicalMaterial({
-      color: 0xeeebe6,
-      roughness: 0.38,
-      clearcoat: 0.45,
-      clearcoatRoughness: 0.3
-    });
-
-    const shellLightMat = new THREE.MeshPhysicalMaterial({
-      color: 0xf8f6f2,
-      roughness: 0.34,
-      clearcoat: 0.45,
-      clearcoatRoughness: 0.3
-    });
-
-    const jointMat = new THREE.MeshStandardMaterial({
-      color: 0x1b1b1f,
-      roughness: 0.55,
-      metalness: 0.3
-    });
-
-    const deepDarkMat = new THREE.MeshStandardMaterial({
-      color: 0x0f0f12,
-      roughness: 0.8
-    });
-
-    const ringMat = new THREE.MeshStandardMaterial({
-      map: ringTexture,
-      emissive: 0xffffff,
-      emissiveMap: ringTexture,
-      emissiveIntensity: 0.25,
-      roughness: 0.5
-    });
-
-    const screenMat = new THREE.MeshPhysicalMaterial({
-      color: 0x000000,
-      clearcoat: 1.0,
-      emissive: 0xffffff,
-      emissiveMap: faceTexture,
-      emissiveIntensity: 1.6
-    });
-
-    const pedestalMat = new THREE.MeshStandardMaterial({
-      color: 0x2a2928,
-      roughness: 0.9
-    });
-
-    // --- Build Robot ---
-    const robotGroup = new THREE.Group();
-    scene.add(robotGroup);
-
-    // Pedestal
-    const pedestal = new THREE.Mesh(new THREE.BoxGeometry(1.7, 1.6, 1.7), pedestalMat);
-    pedestal.position.set(0, -2.22, 0);
-    pedestal.receiveShadow = true;
-    robotGroup.add(pedestal);
-
-    // Torso
-    const torsoMesh = new THREE.Mesh(new RoundedBoxGeometry(1.22, 1.12, 0.92, 4, 0.24), shellMat);
-    torsoMesh.position.set(0, 0, 0);
-    torsoMesh.castShadow = true;
-    robotGroup.add(torsoMesh);
-
-    // Chest top slab
-    const chestSlab = new THREE.Mesh(new RoundedBoxGeometry(0.9, 0.28, 0.15, 3, 0.08), shellLightMat);
-    chestSlab.position.set(0, 0.36, 0.45);
-    robotGroup.add(chestSlab);
-
-    // 3 Chest LEDs
-    const ledCols = [0xff8a3d, 0xff5a5f, 0xff3d8b];
-    for (let i = 0; i < 3; i++) {
-      const led = new THREE.Mesh(
-        new THREE.SphereGeometry(0.04, 16, 16),
-        new THREE.MeshBasicMaterial({ color: ledCols[i] })
-      );
-      led.position.set(-0.16 + i * 0.16, 0.36, 0.54);
-      robotGroup.add(led);
-    }
-
-    // Pelvis
-    const pelvis = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.2, 16), jointMat);
-    pelvis.position.set(0, -0.62, 0);
-    robotGroup.add(pelvis);
-
-    // Head Group (pivot at y: 0.78)
-    const headPivot = new THREE.Group();
-    headPivot.position.set(0, 0.78, 0);
-    robotGroup.add(headPivot);
-
-    const headMesh = new THREE.Mesh(new RoundedBoxGeometry(1.5, 1.42, 1.3, 5, 0.2), shellMat);
-    headMesh.position.set(0, 0.78, 0);
-    headMesh.castShadow = true;
-    headPivot.add(headMesh);
-
-    // Dark back block with tiny circuit bars
-    const darkBack = new THREE.Mesh(new THREE.BoxGeometry(1.28, 1.14, 0.9), jointMat);
-    darkBack.position.set(0, 0.78, -0.3);
-    headPivot.add(darkBack);
-
-    for (let i = 0; i < 20; i++) {
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.02, 0.1), deepDarkMat);
-      bar.position.set((Math.random() - 0.5) * 1.1, 0.4 + Math.random() * 0.8, -0.76);
-      headPivot.add(bar);
-    }
-
-    // Face Ring frame
-    const ringGeo = new RoundedBoxGeometry(1.3, 1.18, 0.1, 4, 0.18);
-    const faceRing = new THREE.Mesh(ringGeo, ringMat);
-    faceRing.position.set(0, 0.78, 0.65);
-    headPivot.add(faceRing);
-
-    // Inner Screen plate
-    const screenGeo = new RoundedBoxGeometry(0.96, 0.88, 0.05, 4, 0.12);
-    const screenMesh = new THREE.Mesh(screenGeo, screenMat);
-    screenMesh.position.set(0, 0.78, 0.71);
-    headPivot.add(screenMesh);
-
-    // Ears
-    const leftEar = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.2, 16), jointMat);
-    leftEar.rotation.z = Math.PI / 2;
-    leftEar.position.set(-0.84, 0.78, 0);
-    headPivot.add(leftEar);
-
-    const rightEar = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.2, 16), jointMat);
-    rightEar.rotation.z = Math.PI / 2;
-    rightEar.position.set(0.84, 0.78, 0);
-    headPivot.add(rightEar);
-
-    // Cable loop right ear
-    const cable = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.04, 12, 24, Math.PI), jointMat);
-    cable.position.set(0.88, 0.58, 0);
-    cable.rotation.y = Math.PI / 2;
-    headPivot.add(cable);
-
-    // Neck
-    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.28, 0.25, 16), jointMat);
-    neck.position.set(0, 0.62, 0);
-    robotGroup.add(neck);
-
-    // Arms
-    const leftArmGroup = new THREE.Group();
-    leftArmGroup.position.set(-0.76, 0.35, 0);
-    leftArmGroup.rotation.z = 0.16;
-    robotGroup.add(leftArmGroup);
-
-    const leftShoulder = new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 16), jointMat);
-    leftArmGroup.add(leftShoulder);
-
-    const leftUpperArm = new THREE.Mesh(new RoundedBoxGeometry(0.26, 0.55, 0.26, 3, 0.08), shellMat);
-    leftUpperArm.position.set(0, -0.32, 0);
-    leftArmGroup.add(leftUpperArm);
-
-    const leftForearm = new THREE.Mesh(new RoundedBoxGeometry(0.24, 0.48, 0.24, 3, 0.08), shellLightMat);
-    leftForearm.position.set(0, -0.74, 0.1);
-    leftForearm.rotation.x = -0.35;
-    leftArmGroup.add(leftForearm);
-
-    // Right Arm
-    const rightArmGroup = new THREE.Group();
-    rightArmGroup.position.set(0.76, 0.35, 0);
-    rightArmGroup.rotation.z = -0.16;
-    robotGroup.add(rightArmGroup);
-
-    const rightShoulder = new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 16), jointMat);
-    rightArmGroup.add(rightShoulder);
-
-    const rightUpperArm = new THREE.Mesh(new RoundedBoxGeometry(0.26, 0.55, 0.26, 3, 0.08), shellMat);
-    rightUpperArm.position.set(0, -0.32, 0);
-    rightArmGroup.add(rightUpperArm);
-
-    const rightForearm = new THREE.Mesh(new RoundedBoxGeometry(0.24, 0.48, 0.24, 3, 0.08), shellLightMat);
-    rightForearm.position.set(0, -0.74, 0.1);
-    rightForearm.rotation.x = -0.35;
-    rightArmGroup.add(rightForearm);
-
-    // Legs
-    const leftLeg = new THREE.Mesh(new RoundedBoxGeometry(0.32, 0.65, 0.32, 3, 0.1), shellMat);
-    leftLeg.position.set(-0.35, -1.05, 0);
-    robotGroup.add(leftLeg);
-
-    const rightLeg = new THREE.Mesh(new RoundedBoxGeometry(0.32, 0.65, 0.32, 3, 0.1), shellMat);
-    rightLeg.position.set(0.35, -1.05, 0);
-    robotGroup.add(rightLeg);
-
-    // Feet
-    const leftFoot = new THREE.Mesh(new RoundedBoxGeometry(0.34, 0.15, 0.48, 3, 0.06), shellLightMat);
-    leftFoot.position.set(-0.35, -1.4, 0.08);
-    robotGroup.add(leftFoot);
-
-    const rightFoot = new THREE.Mesh(new RoundedBoxGeometry(0.34, 0.15, 0.48, 3, 0.06), shellLightMat);
-    rightFoot.position.set(0.35, -1.4, 0.08);
-    robotGroup.add(rightFoot);
-
-    // --- Interactive Mouse & Scroll Logic ---
-    let mouse = { x: 0, y: 0 };
-    let smoothMouse = { x: 0, y: 0 };
-    let scrollY = window.scrollY;
-    let smoothScrollProgress = 0;
-
-    window.addEventListener('mousemove', (e) => {
-      mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-      mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-    });
-
-    window.addEventListener('scroll', () => {
-      scrollY = window.scrollY;
-    });
-
-    window.addEventListener('resize', () => {
-      width = window.innerWidth;
-      height = window.innerHeight;
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
-      renderer.setSize(width, height);
-    });
-
-    // Helper: smoothstep / cubic ease
-    function easeInOutCubic(x) {
-      return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
-    }
-
-    // --- Main Render Loop ---
-    let clock = new THREE.Clock();
-
-    function animate() {
-      requestAnimationFrame(animate);
-      const t = clock.getElapsedTime();
-      const now = performance.now();
-
-      // Smooth mouse
-      smoothMouse.x += (mouse.x - smoothMouse.x) * 0.06;
-      smoothMouse.y += (mouse.y - smoothMouse.y) * 0.06;
-
-      // Scroll progress
-      const maxScroll = Math.max(document.body.scrollHeight - window.innerHeight, 1);
-      const targetP = Math.min(Math.max(scrollY / window.innerHeight, 0), 2);
-      smoothScrollProgress += (targetP - smoothScrollProgress) * 0.08;
-
-      // Eyeball Blinking logic
-      if (!isBlinking && now > nextBlinkTime) {
-        isBlinking = true;
-        blinkStartTime = now;
-      }
-      if (isBlinking) {
-        const elapsed = (now - blinkStartTime) / 180;
-        if (elapsed <= 0.5) {
-          blinkScaleY = 1.0 - (elapsed / 0.5) * 0.9;
-        } else if (elapsed <= 1.0) {
-          blinkScaleY = 0.1 + ((elapsed - 0.5) / 0.5) * 0.9;
-        } else {
-          blinkScaleY = 1.0;
-          isBlinking = false;
-          nextBlinkTime = now + 2500 + Math.random() * 3000;
-        }
-      }
-
-      // Quote Mode Transition
-      targetQuoteMode = smoothScrollProgress >= 1.55;
-      if (targetQuoteMode && quoteModeAlpha < 1.0) {
-        quoteModeAlpha = Math.min(1.0, quoteModeAlpha + 0.05);
-      } else if (!targetQuoteMode && quoteModeAlpha > 0.0) {
-        quoteModeAlpha = Math.max(0.0, quoteModeAlpha - 0.05);
-      }
-      renderFace();
-
-      // Interpolate Camera & Robot Pose:
-      // State 0 (Intro): Cam z: 11.6, Cam y: 1.1, Look y: 0.55, Body yaw: -0.42, Head: yaw -0.6, pitch 0.16, roll 0.22
-      // State 1 (Product & Reviews): Cam z: 6.9, Cam y: 1.95, Look y: 1.72, Body yaw: -0.2, Head: yaw -0.06, pitch 0.04, roll 0
-      const blend = easeInOutCubic(Math.min(smoothScrollProgress, 1.0));
-      const isMobile = width <= 900;
-      const zMult = isMobile ? 1.25 : 1.0;
-
-      const camZ = THREE.MathUtils.lerp(11.6, 6.9, blend) * zMult;
-      const camY = THREE.MathUtils.lerp(1.1, 1.95, blend);
-      const lookY = THREE.MathUtils.lerp(0.55, 1.72, blend);
-
-      camera.position.x = smoothMouse.x * 0.25;
-      camera.position.y = camY - smoothMouse.y * 0.1;
-      camera.position.z = camZ;
-      camera.lookAt(0, lookY, 0);
-
-      // Robot Base rotation + mouse interaction
-      const bodyYaw = THREE.MathUtils.lerp(-0.42, -0.2, blend) + smoothMouse.x * 0.12;
-      robotGroup.rotation.y = bodyYaw;
-
-      // Idle Bob
-      robotGroup.position.y = Math.sin(1.4 * t) * 0.02;
-
-      // Head Pose + sway
-      const headYaw = THREE.MathUtils.lerp(-0.6, -0.06, blend) + smoothMouse.x * 0.45;
-      const headPitch = THREE.MathUtils.lerp(0.16, 0.04, blend) + (-smoothMouse.y) * 0.18 + Math.sin(0.9 * t) * 0.02;
-      const headRoll = THREE.MathUtils.lerp(0.22, 0.0, blend) + Math.sin(0.7 * t) * 0.02;
-
-      headPivot.rotation.y = headYaw;
-      headPivot.rotation.x = headPitch;
-      headPivot.rotation.z = headRoll;
-
-      // Arm swing idle
-      leftArmGroup.rotation.x = Math.sin(1.4 * t) * 0.05;
-      rightArmGroup.rotation.x = Math.sin(1.4 * t + Math.PI) * 0.05;
-
-      renderer.render(scene, camera);
-    }
-
-    // Respect the OS "reduce motion" setting: draw one static frame instead of
-    // spinning the render loop forever.
-    const prefersReducedMotion =
-      window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-    if (prefersReducedMotion) {
-      renderer.render(scene, camera);
-    } else {
-      animate();
-    }
-
-    } catch (err) {
-      console.warn('[nova-3d] 3D hero disabled:', (err && err.message) || err);
-      const el = document.getElementById('webgl-container');
-      if (el) el.remove();
-    }
-    })();
-  </script>
-
-  <!-- AUTO-TYPING TERMINAL SCRIPT & REVEAL OBSERVER -->
-  <script>
-    // Reveal animation observer
-    const rvElements = document.querySelectorAll('.rv');
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('active');
-        }
-      });
-    }, { threshold: 0.12 });
-    rvElements.forEach(el => observer.observe(el));
-
-    // Rail Navigation text updater & Top bar auto-slide
-    const railBadge = document.getElementById('rail-badge');
-    const railText = document.getElementById('rail-text');
-    const topBar = document.getElementById('top-bar');
-
-    window.addEventListener('scroll', () => {
-      const scrollY = window.scrollY;
-      const h = window.innerHeight;
-
-      // Top bar hide after 40px
-      if (scrollY > 40) {
-        topBar.style.transform = 'translateY(-100%)';
-      } else {
-        topBar.style.transform = 'translateY(0)';
-      }
-
-      // Rail label switch
-      if (scrollY < h * 0.7) {
-        railBadge.style.top = '0%';
-        railText.textContent = 'INTRO';
-      } else if (scrollY < h * 1.6) {
-        railBadge.style.top = '31%';
-        railText.textContent = 'PRODUCT';
-      } else {
-        railBadge.style.top = '62%';
-        railText.textContent = 'REVIEWS';
-      }
-    });
-
-    // Carousel auto-slide every 2.4s
-    let currentSlide = 0;
-    const carousel = document.getElementById('tab-carousel-inner');
-    setInterval(() => {
-      currentSlide = (currentSlide + 1) % 6;
-      carousel.style.transform = `translateX(-${currentSlide * 280}px)`;
-    }, 2400);
-
-    // Auto Typing Prompts Loop (Presidency Helpdesk Context)
-    const prompts = [
-      "How do I apply for the semester re-evaluation for B.Tech CSE?",
-      "Download my Odd Semester Examination hall ticket and seat number.",
-      "Check upcoming placement drives & mock interview schedule.",
-      "Submit a hostel room change request and get warden e-approval.",
-      "Search JSTOR and reserve IEEE Cloud Computing handbook in library.",
-      "Request verified Bonafide Certificate for passport and bank loan."
-    ];
-
-    let pIndex = 0;
-    let charIndex = 0;
-    let isDeleting = false;
-    const typingSpan = document.getElementById('prompt-typing-text');
-    const nextHintSpan = document.getElementById('next-prompt-hint');
-
-    function typeLoop() {
-      const current = prompts[pIndex];
-      const nextOne = prompts[(pIndex + 1) % prompts.length];
-      nextHintSpan.textContent = nextOne;
-
-      if (!isDeleting) {
-        typingSpan.textContent = current.slice(0, charIndex + 1);
-        charIndex++;
-        if (charIndex === current.length) {
-          setTimeout(() => { isDeleting = true; typeLoop(); }, 2600);
-          return;
-        }
-        setTimeout(typeLoop, 38);
-      } else {
-        typingSpan.textContent = current.slice(0, charIndex - 2);
-        charIndex -= 2;
-        if (charIndex <= 0) {
-          isDeleting = false;
-          charIndex = 0;
-          pIndex = (pIndex + 1) % prompts.length;
-          setTimeout(typeLoop, 250);
-          return;
-        }
-        setTimeout(typeLoop, 14);
-      }
-    }
-    typeLoop();
-
-    // Student Reviews carousel logic
-    const reviews = [
-      {
-        quote: "Finding previous year exam papers and getting my hall ticket cleared took seconds instead of waiting in line at the Dean's office. Nova is indispensable during semester finals.",
-        author: "Aarav Nair",
-        role: "B.Tech Computer Science, 6th Sem • Presidency University"
-      },
-      {
-        quote: "The automated placement preparation quizzes and resume parser helped me land an interview with Microsoft. The placement cell linkups are lightning-fast!",
-        author: "Sneha Kulkarni",
-        role: "BBA International Business, 4th Sem • Presidency University"
-      },
-      {
-        quote: "Requested a late gate-pass for our robotics hackathon at 10 PM. Nova verified with our mentor and had the warden's digital signature generated in 3 minutes.",
-        author: "Tariq Mansoor",
-        role: "M.Tech AI & Data Science • Presidency University"
-      }
-    ];
-
-    let revIdx = 0;
-    function updateReviewUI() {
-      const content = document.getElementById('review-content');
-      content.style.opacity = '0';
-      content.style.transform = 'translateY(10px)';
-
-      setTimeout(() => {
-        document.getElementById('review-text').textContent = reviews[revIdx].quote;
-        document.getElementById('review-author').textContent = reviews[revIdx].author;
-        document.getElementById('review-role').textContent = reviews[revIdx].role;
-        document.getElementById('review-index-num').textContent = `0${revIdx + 1} / 03`;
-
-        content.style.opacity = '1';
-        content.style.transform = 'translateY(0)';
-      }, 300);
-    }
-
-    window.nextReview = () => {
-      revIdx = (revIdx + 1) % reviews.length;
-      updateReviewUI();
-    };
-
-    window.prevReview = () => {
-      revIdx = (revIdx - 1 + reviews.length) % reviews.length;
-      updateReviewUI();
-    };
-
-    // NOTE: the real chat client lives in app.js. It talks to our own backend
-    // (POST /api/chat), which holds the LLM key and grounds every answer in
-    // the university knowledge base. Nothing in the browser ever fabricates an
-    // answer on its own.
-  </script>
 
   <script src="app.js"></script>
 </body>
