@@ -1,6 +1,6 @@
 /**
- * AI Campus Helpdesk - backend server ("Nova")
- * --------------------------------------------
+ * AI Campus Helpdesk - backend server
+ * ------------------------------------
  * Architecture:
  *   Browser (static frontend in /public)  ->  Express backend  ->  LLM provider
  *
@@ -36,6 +36,7 @@ const CONFIG = {
   provider: (process.env.LLM_PROVIDER || 'gemini').toLowerCase(),
   apiKey: (process.env.LLM_API_KEY || '').trim(),
   model: process.env.LLM_MODEL || '',
+  fallbackModel: process.env.LLM_FALLBACK_MODEL || '',
   baseUrl: (process.env.LLM_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, ''),
   geminiBaseUrl: (
     process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta'
@@ -62,6 +63,9 @@ const SESSION_MAX_MESSAGES = 12;
 const SESSION_TTL_MS = 60 * 60 * 1000; // drop idle sessions after an hour
 const TEMPERATURE = 0.2; // low temperature -> fewer hallucinations
 
+/** How long to stay on the fallback model before re-probing the primary. */
+const FALLBACK_HOLD_MS = Number(process.env.LLM_FALLBACK_HOLD_MS) || 10 * 60 * 1000;
+
 /** Simple in-process rate limit: max N chat requests per IP per minute. */
 const RATE_LIMIT = { windowMs: 60_000, max: Number(process.env.RATE_LIMIT_PER_MIN) || 30 };
 const rateBuckets = new Map();
@@ -72,7 +76,7 @@ const rateBuckets = new Map();
  * The Gemini free tier allows only a handful of requests per minute. When the
  * provider says "retry in 20s", hammering it again straight away would burn the
  * quota and make things worse, so the server enters a short cooldown and
- * answers new questions with a friendly "Nova is busy" message instead.
+ * answers new questions with a friendly "busy" message instead.
  */
 const QUOTA = {
   /** Never wait longer than this for a retry inside a single request. */
@@ -390,9 +394,54 @@ async function withRetry(label, fn) {
   throw lastError;
 }
 
+/**
+ * The Gemini model currently in use.
+ *
+ * Free-tier API keys have a per-model quota. When the preferred model is
+ * quota-blocked (HTTP 429) or unavailable (HTTP 404), the server transparently
+ * falls back to a secondary model so the student still gets an answer. The
+ * fallback is sticky, but the primary model is re-probed after a while.
+ */
+const MODEL_STATE = {
+  active: null, // model id currently in use
+  fallbackUntil: 0, // do not re-probe the primary before this time
+};
+
+function primaryModel() {
+  return CONFIG.model || 'gemini-3.8-flash';
+}
+
+function fallbackModel() {
+  return CONFIG.fallbackModel || '';
+}
+
+/** The model to use for the next request. */
+function currentModel() {
+  if (MODEL_STATE.active && Date.now() < MODEL_STATE.fallbackUntil) {
+    return MODEL_STATE.active;
+  }
+  // Re-probe the primary model.
+  MODEL_STATE.active = null;
+  MODEL_STATE.fallbackUntil = 0;
+  return primaryModel();
+}
+
+/** Remember that the primary model is unusable for a while. */
+function degradeModel(reason) {
+  const alt = fallbackModel();
+  if (!alt || alt === MODEL_STATE.active) return;
+  MODEL_STATE.active = alt;
+  MODEL_STATE.fallbackUntil = Date.now() + FALLBACK_HOLD_MS;
+  console.warn(
+    `[llm] primary model unavailable (${reason}); using fallback model "${alt}" for ${Math.round(
+      FALLBACK_HOLD_MS / 1000
+    )}s`
+  );
+}
+
 /** Call the Google Gemini REST API. */
 async function callGemini(messages) {
-  const model = CONFIG.model || 'gemini-3.8-flash';
+  const model = currentModel();
   const url = `${CONFIG.geminiBaseUrl}/models/${encodeURIComponent(
     model
   )}:generateContent?key=${encodeURIComponent(CONFIG.apiKey)}`;
@@ -415,9 +464,20 @@ async function callGemini(messages) {
   if (system) body.systemInstruction = { parts: [{ text: system.content }] };
   if (CONFIG.jsonMode) body.generationConfig.responseMimeType = 'application/json';
 
-  const data = await providerFetch('Gemini', url, body, {
-    'Content-Type': 'application/json',
-  });
+  let data;
+  try {
+    data = await providerFetch('Gemini', url, body, {
+      'Content-Type': 'application/json',
+    });
+  } catch (err) {
+    // Quota exhausted (429) or model retired (404): try the fallback model
+    // once before giving up.
+    if (err && (err.status === 429 || err.status === 404) && fallbackModel()) {
+      degradeModel(`HTTP ${err.status}`);
+      return callGemini(messages);
+    }
+    throw err;
+  }
 
   const parts = (data && data.candidates && data.candidates[0] && data.candidates[0].content &&
     data.candidates[0].content.parts) || [];
@@ -716,7 +776,7 @@ app.post('/api/chat', rateLimit, async (req, res) => {
   if (cooldown > 0) {
     res.set('Retry-After', String(cooldown));
     return res.status(429).json({
-      answer: `Nova is catching up with the university helpdesk queue. Please try again in about ${cooldown} second${cooldown === 1 ? '' : 's'}.`,
+      answer: `The assistant is busy handling other questions right now. Please try again in about ${cooldown} second${cooldown === 1 ? '' : 's'}.`,
       category: 'Other',
       grounded: false,
       error: 'rate_limited',
@@ -778,7 +838,7 @@ app.post('/api/chat', rateLimit, async (req, res) => {
       const cooldown = cooldownRemainingSeconds();
       res.set('Retry-After', String(cooldown));
       return res.status(429).json({
-        answer: `Nova is catching up with the university helpdesk queue. Please try again in about ${cooldown} second${cooldown === 1 ? '' : 's'}.`,
+        answer: `The assistant is busy handling other questions right now. Please try again in about ${cooldown} second${cooldown === 1 ? '' : 's'}.`,
         category: 'Other',
         grounded: false,
         error: 'rate_limited',
