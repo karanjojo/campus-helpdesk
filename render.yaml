@@ -1,0 +1,56 @@
+# Render.com Blueprint for the AI Campus Helpdesk.
+#
+# Deploy:  https://render.com  ->  New  ->  Blueprint  ->  select this repo
+#
+# Render will ask for the LLM_API_KEY value (marked "sync: false" below).
+# Get a free Gemini key at https://aistudio.google.com/apikey
+#
+# After the first deploy the site is live at
+#   https://campus-helpdesk.onrender.com
+#
+# NOTE: the free plan spins down after ~15 minutes of inactivity, so the first
+# request after a quiet period takes ~30 seconds while the instance wakes up.
+
+services:
+  - type: web
+    name: campus-helpdesk
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+
+      - key: LLM_PROVIDER
+        value: gemini
+
+      # Primary model. Each Gemini model has its own free-tier quota.
+      - key: LLM_MODEL
+        value: gemini-3.5-flash-lite
+
+      # Comma-separated fallbacks, tried in order when the primary is
+      # quota-blocked (429) or retired (404).
+      - key: LLM_FALLBACK_MODEL
+        value: gemini-3.8-flash,gemini-2.5-flash
+
+      - key: LLM_JSON_MODE
+        value: "true"
+
+      - key: LLM_TIMEOUT_MS
+        value: "20000"
+
+      # Per-IP limit on /api/chat (requests per minute).
+      - key: RATE_LIMIT_PER_MIN
+        value: "30"
+
+      # Longest cooldown after the provider reports a quota error.
+      - key: LLM_MAX_COOLDOWN_MS
+        value: "30000"
+
+      # Enter your real key in the Render dashboard. Never commit it.
+      - key: LLM_API_KEY
+        sync: false

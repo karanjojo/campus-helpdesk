@@ -36,7 +36,10 @@ const CONFIG = {
   provider: (process.env.LLM_PROVIDER || 'gemini').toLowerCase(),
   apiKey: (process.env.LLM_API_KEY || '').trim(),
   model: process.env.LLM_MODEL || '',
-  fallbackModel: process.env.LLM_FALLBACK_MODEL || '',
+  fallbackModels: (process.env.LLM_FALLBACK_MODEL || '')
+    .split(',')
+    .map((m) => m.trim())
+    .filter(Boolean),
   baseUrl: (process.env.LLM_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, ''),
   geminiBaseUrl: (
     process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta'
@@ -414,14 +417,16 @@ async function withRetry(label, fn) {
 const MODEL_STATE = {
   active: null, // model id currently in use
   fallbackUntil: 0, // do not re-probe the primary before this time
+  tried: [], // fallback models already exhausted in this degradation cycle
 };
 
 function primaryModel() {
   return CONFIG.model || 'gemini-3.8-flash';
 }
 
-function fallbackModel() {
-  return CONFIG.fallbackModel || '';
+/** Fallback models, in the order they should be tried. */
+function fallbackModels() {
+  return CONFIG.fallbackModels || [];
 }
 
 /** The model to use for the next request. */
@@ -432,13 +437,23 @@ function currentModel() {
   // Re-probe the primary model.
   MODEL_STATE.active = null;
   MODEL_STATE.fallbackUntil = 0;
+  MODEL_STATE.tried = [];
   return primaryModel();
 }
 
-/** Remember that the primary model is unusable for a while. */
+/**
+ * Remember that the primary model is unusable for a while and switch to the
+ * next fallback. Every Gemini model has its own free-tier quota, so a list of
+ * fallbacks multiplies the questions the site can answer per minute.
+ *
+ * @returns {boolean} true when a fallback was activated
+ */
 function degradeModel(reason) {
-  const alt = fallbackModel();
-  if (!alt || alt === MODEL_STATE.active) return;
+  const candidates = fallbackModels().filter((m) => !MODEL_STATE.tried.includes(m));
+  if (!candidates.length) return false;
+
+  const alt = candidates[0];
+  MODEL_STATE.tried.push(alt);
   MODEL_STATE.active = alt;
   MODEL_STATE.fallbackUntil = Date.now() + FALLBACK_HOLD_MS;
   console.warn(
@@ -446,6 +461,7 @@ function degradeModel(reason) {
       FALLBACK_HOLD_MS / 1000
     )}s`
   );
+  return true;
 }
 
 /** Call the Google Gemini REST API. */
@@ -479,10 +495,9 @@ async function callGemini(messages) {
       'Content-Type': 'application/json',
     });
   } catch (err) {
-    // Quota exhausted (429) or model retired (404): try the fallback model
-    // once before giving up. Only arm the cooldown if no fallback exists.
-    if (err && (err.status === 429 || err.status === 404) && fallbackModel()) {
-      degradeModel(`HTTP ${err.status}`);
+    // Quota exhausted (429) or model retired (404): try the next fallback
+    // model before giving up. Only arm the cooldown if no fallback is left.
+    if (err && (err.status === 429 || err.status === 404) && degradeModel(`HTTP ${err.status}`)) {
       return callGemini(messages);
     }
     if (err && err.quota) armCooldown(err);

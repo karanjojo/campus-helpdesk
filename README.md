@@ -17,13 +17,14 @@ student to the right office instead of inventing a date, email, phone number, ti
 3. [AI model / API used](#ai-model--api-used)
 4. [How the AI is integrated](#how-the-ai-is-integrated)
 5. [Setup and running the app](#setup-and-running-the-app)
-6. [Configuration reference](#configuration-reference)
-7. [Project structure](#project-structure)
-8. [API reference](#api-reference)
-9. [Security note](#security-note)
-10. [Testing / acceptance checks](#testing--acceptance-checks)
-11. [AI tools disclosure](#ai-tools-disclosure)
-12. [License](#license)
+6. [Deploying it so the judges can open it](#deploying-it-so-the-judges-can-open-it)
+7. [Configuration reference](#configuration-reference)
+8. [Project structure](#project-structure)
+9. [API reference](#api-reference)
+10. [Security note](#security-note)
+11. [Testing / acceptance checks](#testing--acceptance-checks)
+12. [AI tools disclosure](#ai-tools-disclosure)
+13. [License](#license)
 
 ---
 
@@ -205,6 +206,81 @@ npm start
 
 ---
 
+## Deploying it so the judges can open it
+
+The repo is public and the app is a plain Node/Express server, so it runs on any Node host.
+The only secret is the LLM key, which is set as an environment variable **on the host** — never
+committed.
+
+### Option A — Render (recommended, free)
+
+The repo already contains a [`render.yaml`](render.yaml) Blueprint, so this is four steps:
+
+1. Go to **<https://render.com>** → **New** → **Blueprint**.
+2. Connect the GitHub account and pick `karanjojo/campus-helpdesk`.
+3. Render will show the environment variables from the Blueprint and ask for the one value it
+   cannot read from the repo — **`LLM_API_KEY`**. Paste your Gemini key
+   (free key: <https://aistudio.google.com/apikey>).
+4. Click **Apply** and wait for the build.
+
+The site is live at **`https://campus-helpdesk.onrender.com`** (or a similar
+`campus-helpdesk-xxxx.onrender.com` if the name is taken).
+
+Check it with:
+
+```bash
+curl https://campus-helpdesk.onrender.com/api/health
+```
+
+> The free plan spins down after ~15 minutes of inactivity, so the first request after a quiet
+> period takes ~30 seconds while the instance wakes up. Open the site once before you present.
+
+### Option B — Railway
+
+<https://railway.app> → **New Project** → **Deploy from GitHub** → pick the repo → Railway detects
+`package.json` and uses `npm start`. Add `LLM_API_KEY` (and optionally `LLM_MODEL`,
+`LLM_FALLBACK_MODEL`) under **Variables**. The `Procfile` in the repo is set for Railway/Heroku.
+
+### Option C — any other Node host
+
+`npm ci --omit=dev` to build, `npm start` to run, and set `LLM_API_KEY` (plus `PORT` if the host
+does not set it). The app binds to all interfaces and exposes `/api/health` for host health
+checks.
+
+### Making sure the demo does not hit a quota wall
+
+Free Gemini keys allow only a handful of requests per minute **per model**. The server handles
+this for you:
+
+- `LLM_FALLBACK_MODEL` accepts a **comma-separated list**. When the primary model returns HTTP
+  429 (quota) or 404 (retired), the server switches to the next model in the list. Each model has
+  its own quota bucket, so listing several multiplies how many questions the site can answer per
+  minute.
+- When every model is exhausted the server arms a short cooldown and answers
+  *"Nova is catching up with the university helpdesk queue — please try again in about N
+  seconds."* with `Retry-After` set, instead of failing silently.
+
+The Blueprint ships with `gemini-3.5-flash-lite` as the primary and
+`gemini-3.8-flash,gemini-2.5-flash` as fallbacks. For a busy demo, use a paid tier or a key with
+a higher quota.
+
+### Demo checklist
+
+```bash
+# 1. The site is up
+curl -s https://campus-helpdesk.onrender.com/api/health
+
+# 2. The key is wired (hasApiKey must be true)
+curl -s https://campus-helpdesk.onrender.com/api/health | grep -o '"hasApiKey":[a-z]*'
+
+# 3. The assistant actually answers
+curl -s -X POST https://campus-helpdesk.onrender.com/api/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"Whom should I contact for placement training?"}'
+```
+
+---
+
 ## Configuration reference
 
 All settings live in `.env` (see `.env.example`).
@@ -222,6 +298,11 @@ All settings live in `.env` (see `.env.example`).
 | `OLLAMA_MODEL`      | `llama3.2`                             | Local model id                                          |
 | `LLM_JSON_MODE`     | `true`                                 | Set `false` for providers without JSON mode            |
 | `LLM_TIMEOUT_MS`    | `20000`                                | Per-request timeout                                     |
+| `LLM_FALLBACK_MODEL`| –                                      | Comma-separated fallback models (tried on 429/404)      |
+| `LLM_FALLBACK_HOLD_MS` | `600000`                            | How long to stay on a fallback before re-probing        |
+| `LLM_MAX_RETRIES`   | `2`                                    | Retries for transient provider failures                 |
+| `RATE_LIMIT_PER_MIN`| `30`                                   | Chat requests allowed per IP per minute                 |
+| `LLM_MAX_COOLDOWN_MS`| `30000`                               | Longest cooldown after a provider quota error           |
 | `GEMINI_BASE_URL`   | Google v1beta endpoint                 | Override for testing against a local stub              |
 
 ---
@@ -233,6 +314,8 @@ campus-helpdesk/
 ├── server.js                 # Express backend: prompt, LLM call, parsing, routes
 ├── knowledge.json            # The ONLY source of truth (8 university facts)
 ├── package.json
+├── render.yaml               # Render Blueprint (one-click deploy)
+├── Procfile                  # web: npm start  (Railway / Heroku)
 ├── .env.example              # Committed template — no secrets
 ├── .env                      # Local secrets — git-ignored
 ├── .gitignore
