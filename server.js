@@ -1,6 +1,6 @@
 /**
- * AI Campus Helpdesk - backend server
- * ------------------------------------
+ * AI Campus Helpdesk - backend server ("Nova")
+ * --------------------------------------------
  * Architecture:
  *   Browser (static frontend in /public)  ->  Express backend  ->  LLM provider
  *
@@ -10,6 +10,9 @@
  * The model is grounded by injecting `knowledge.json` into the system prompt.
  * A low temperature plus an explicit "unknown query" rule keeps the assistant
  * from inventing dates, emails, phone numbers, timings or percentages.
+ * On top of the prompt, `verifyGrounding()` re-checks the answer server-side:
+ * any concrete fact (email, phone, date, percentage, link, number) that does
+ * not appear in the knowledge base is reported back as an unverified claim.
  */
 
 'use strict';
@@ -31,7 +34,7 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 
 const CONFIG = {
   provider: (process.env.LLM_PROVIDER || 'gemini').toLowerCase(),
-  apiKey: process.env.LLM_API_KEY || '',
+  apiKey: (process.env.LLM_API_KEY || '').trim(),
   model: process.env.LLM_MODEL || '',
   baseUrl: (process.env.LLM_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, ''),
   geminiBaseUrl: (
@@ -41,11 +44,44 @@ const CONFIG = {
   ollamaModel: process.env.OLLAMA_MODEL || 'llama3.2',
   jsonMode: process.env.LLM_JSON_MODE !== 'false',
   timeoutMs: Number(process.env.LLM_TIMEOUT_MS) || 20000,
+  maxRetries: Number(process.env.LLM_MAX_RETRIES) || 2,
 };
+
+/** Placeholder values shipped in .env.example - treated as "no key configured". */
+const PLACEHOLDER_KEYS = ['PASTE_YOUR_GEMINI_API_KEY_HERE', 'your-api-key-here'];
+
+/** True when a usable API key is configured (Ollama needs no key). */
+function hasApiKey() {
+  if (CONFIG.provider === 'ollama') return true;
+  return Boolean(CONFIG.apiKey) && !PLACEHOLDER_KEYS.includes(CONFIG.apiKey);
+}
 
 const MAX_MESSAGE_LENGTH = 500;
 const HISTORY_TURNS = 6; // last ~6 messages (3 exchanges) so follow-ups work
+const SESSION_MAX_MESSAGES = 12;
+const SESSION_TTL_MS = 60 * 60 * 1000; // drop idle sessions after an hour
 const TEMPERATURE = 0.2; // low temperature -> fewer hallucinations
+
+/** Simple in-process rate limit: max N chat requests per IP per minute. */
+const RATE_LIMIT = { windowMs: 60_000, max: Number(process.env.RATE_LIMIT_PER_MIN) || 30 };
+const rateBuckets = new Map();
+
+/**
+ * Provider quota handling.
+ *
+ * The Gemini free tier allows only a handful of requests per minute. When the
+ * provider says "retry in 20s", hammering it again straight away would burn the
+ * quota and make things worse, so the server enters a short cooldown and
+ * answers new questions with a friendly "Nova is busy" message instead.
+ */
+const QUOTA = {
+  /** Never wait longer than this for a retry inside a single request. */
+  maxInlineRetryWaitMs: Number(process.env.LLM_MAX_INLINE_RETRY_WAIT_MS) || 3000,
+  /** Longest cooldown we will hold after a 429. */
+  maxCooldownMs: Number(process.env.LLM_MAX_COOLDOWN_MS) || 30000,
+};
+let providerCooldownUntil = 0;
+let providerCooldownSeconds = 0;
 
 const ALLOWED_CATEGORIES = [
   'Academics',
@@ -89,11 +125,14 @@ function formatKnowledge(knowledge) {
     .join('\n');
 }
 
+/** The whole knowledge base as one lowercase blob, used for fact verification. */
+const KNOWLEDGE_CORPUS = formatKnowledge(KNOWLEDGE).toLowerCase();
+
 /** The model actually in use, falling back to a sensible default per provider. */
 function effectiveModel() {
   if (CONFIG.provider === 'ollama') return CONFIG.ollamaModel;
   if (CONFIG.model) return CONFIG.model;
-  return CONFIG.provider === 'openai' ? 'gpt-4o-mini' : 'gemini-2.5-flash';
+  return CONFIG.provider === 'openai' ? 'gpt-4o-mini' : 'gemini-3.8-flash';
 }
 
 // ---------------------------------------------------------------------------
@@ -108,7 +147,7 @@ RULES:
 3. NEVER invent dates, numbers, names, emails, phone numbers, locations or policies.
 4. If the question is unrelated to the university, politely say you can only help with university queries.
 5. Be friendly, concise (2-4 sentences), and clear. Use a short bullet list only if it genuinely helps.
-6. Respond ONLY as JSON: {"answer": string, "category": one of [Academics, Examinations, Placements, Hostel, Library, Administration, Events, Other], "grounded": boolean}. "grounded" is true only if the answer came directly from the knowledge base.
+6. Respond ONLY as JSON: {"answer": string, "category": one of [Academics, Attendance, Examinations, Placements, Hostel, Library, Administration, Events, Other], "grounded": boolean}. "grounded" is true only if the answer came directly from the knowledge base.
 
 KNOWLEDGE BASE:
 {{knowledge}}`;
@@ -140,6 +179,80 @@ function buildPrompt(history, userMessage) {
 }
 
 // ---------------------------------------------------------------------------
+// Grounding verification (server-side anti-hallucination check)
+// ---------------------------------------------------------------------------
+
+/**
+ * Concrete facts the knowledge base can never legitimately contain.
+ * The supplied knowledge base has no dates, emails, phone numbers, percentages
+ * or links, so any of these appearing in an answer is an unverified claim.
+ */
+const CLAIM_PATTERNS = [
+  { label: 'email address', re: /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g },
+  { label: 'phone number', re: /\+?\d[\d\s().-]{7,}\d/g },
+  { label: 'percentage', re: /\b\d{1,3}(?:\.\d+)?\s*%/g },
+  {
+    label: 'date',
+    re: /\b\d{1,2}[\s./-](?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[\s./-]\d{2,4}\b/gi,
+  },
+  { label: 'time', re: /\b\d{1,2}:\d{2}\s*(?:am|pm)?\b/gi },
+  { label: 'link', re: /\bhttps?:\/\/\S+/gi },
+  { label: 'number', re: /\b\d[\d,.]*\b/g },
+];
+
+/**
+ * Re-check an answer against the knowledge base.
+ *
+ * The model already self-reports `grounded`, but a self-report is not a
+ * guarantee. This pass looks for concrete facts (numbers, emails, dates, ...)
+ * in the answer and verifies each one actually appears in the knowledge base.
+ * Anything that does not is returned as a flag so the UI can warn the student.
+ *
+ * @param {string} answer
+ * @returns {{grounded: boolean, flags: Array<{label: string, value: string}>}}
+ */
+function verifyGrounding(answer) {
+  const flags = [];
+  if (!answer) return { grounded: false, flags };
+
+  // Strip markdown list numbering ("1.", "2)") so bullets are not read as facts.
+  const text = answer.replace(/^\s*\d+[.)]\s+/gm, '').replace(/`/g, '');
+
+  // Specific patterns first, so the generic "number" check can skip digits that
+  // were already reported as part of a date, time or percentage.
+  const specific = CLAIM_PATTERNS.filter((p) => p.label !== 'number');
+  const generic = CLAIM_PATTERNS.find((p) => p.label === 'number');
+  const consumed = [];
+
+  for (const { label, re } of specific) {
+    for (const raw of text.match(re) || []) {
+      const value = raw.trim();
+      if (!value) continue;
+      // A fact is acceptable when it can be found verbatim in the knowledge base.
+      if (KNOWLEDGE_CORPUS.includes(value.toLowerCase())) continue;
+      if (!flags.some((f) => f.label === label && f.value === value)) {
+        flags.push({ label, value });
+        consumed.push(value.toLowerCase());
+      }
+    }
+  }
+
+  // Generic: any bare number the knowledge base cannot vouch for.
+  for (const raw of text.match(generic.re) || []) {
+    const value = raw.trim();
+    if (!value) continue;
+    if (KNOWLEDGE_CORPUS.includes(value.toLowerCase())) continue;
+    // Already reported as part of a date / time / percentage.
+    if (consumed.some((c) => c.includes(value.toLowerCase()))) continue;
+    if (!flags.some((f) => f.label === 'number' && f.value === value)) {
+      flags.push({ label: 'number', value });
+    }
+  }
+
+  return { grounded: flags.length === 0, flags };
+}
+
+// ---------------------------------------------------------------------------
 // LLM provider adapters
 // ---------------------------------------------------------------------------
 
@@ -154,9 +267,132 @@ async function fetchWithTimeout(url, options, timeoutMs) {
   }
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Read a response body as JSON, falling back to text. */
+async function readJson(res) {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { raw: text };
+  }
+}
+
+/** Turn a provider error payload into a short, safe message (no secrets). */
+function providerError(name, status, data) {
+  const detail =
+    data?.error?.message ||
+    data?.message ||
+    (typeof data?.raw === 'string' ? data.raw.slice(0, 200) : '');
+  return `${name} request failed (HTTP ${status})${detail ? `: ${detail}` : ''}`;
+}
+
+/**
+ * How long the provider asked us to wait before retrying.
+ * Google returns this in the error body ("Please retry in 20.6s.") and
+ * sometimes in a `Retry-After` header. Returns 0 when no hint is available.
+ */
+function retryAfterSeconds(status, headers, data) {
+  const header = headers && headers.get && headers.get('retry-after');
+  if (header) {
+    const secs = Number(header);
+    if (Number.isFinite(secs) && secs >= 0) return secs;
+    const date = Date.parse(header);
+    if (!Number.isNaN(date)) return Math.max(0, Math.round((date - Date.now()) / 1000));
+  }
+  const message = `${(data && (data.error?.message || data.message)) || ''}`;
+  const match = message.match(/retry in ([\d.]+)\s*s/i);
+  if (match) return Math.ceil(Number(match[1]));
+  // Free-tier quota errors name the metric; assume a short cooldown.
+  if (status === 429) return 20;
+  return 0;
+}
+
+/**
+ * Perform the provider HTTP call.
+ *
+ * A dropped keep-alive connection surfaces as a generic network error rather
+ * than an HTTP status. It must be retried - otherwise the request hangs until
+ * the timeout and the student sees an error for no good reason. A timeout is
+ * retried as well, but it is reported separately so the API can still
+ * distinguish "timed out" from "provider rejected".
+ */
+async function providerFetch(name, url, body, headers) {
+  let res;
+  try {
+    res = await fetchWithTimeout(
+      url,
+      { method: 'POST', headers, body: JSON.stringify(body) },
+      CONFIG.timeoutMs
+    );
+  } catch (err) {
+    const aborted = err && (err.name === 'AbortError' || /abort/i.test(err.message || ''));
+    const wrapped = new Error(
+      `${name} request failed: ${(err && err.message) || 'network error'}`
+    );
+    wrapped.retriable = true;
+    wrapped.aborted = aborted;
+    throw wrapped;
+  }
+
+  const data = await readJson(res);
+  if (!res.ok) {
+    const err = new Error(providerError(name, res.status, data));
+    // 429 (rate limited) and 5xx (server busy) are usually transient.
+    err.retriable = res.status === 429 || res.status >= 500;
+    err.status = res.status;
+    if (res.status === 429) {
+      const seconds = retryAfterSeconds(res.status, res.headers, data);
+      err.retryAfterSeconds = seconds;
+      err.quota = true;
+      // Start a cooldown so we stop burning quota with doomed retries.
+      const cooldownMs = Math.min(seconds * 1000, QUOTA.maxCooldownMs);
+      providerCooldownUntil = Math.max(providerCooldownUntil, Date.now() + cooldownMs);
+      providerCooldownSeconds = Math.ceil(cooldownMs / 1000);
+    }
+    throw err;
+  }
+  return data;
+}
+
+/**
+ * Run a provider call with a small retry budget.
+ *
+ * Only transient failures (429 / 5xx / network errors) are retried, and never
+ * when the provider asked us to wait longer than we are willing to block a
+ * student for - in that case we surface a "busy" answer straight away.
+ */
+async function withRetry(label, fn) {
+  let lastError;
+  for (let attempt = 0; attempt <= CONFIG.maxRetries; attempt += 1) {
+    try {
+      return await fn(attempt);
+    } catch (err) {
+      lastError = err;
+
+      // A quota error is never retried inline: the provider asked us to wait
+      // and retrying would only burn more of the quota. The cooldown below
+      // handles it, and the student gets a clear "try again in N seconds".
+      if (err && err.quota) {
+        err.rateLimited = true;
+        throw err;
+      }
+
+      const retriable = err && err.retriable === true;
+      if (!retriable || attempt === CONFIG.maxRetries) break;
+
+      const backoff = 800 * 2 ** attempt;
+      console.warn(`[llm] ${label} transient failure; retrying in ${backoff}ms`);
+      await sleep(backoff);
+    }
+  }
+  throw lastError;
+}
+
 /** Call the Google Gemini REST API. */
 async function callGemini(messages) {
-  const model = CONFIG.model || 'gemini-2.5-flash';
+  const model = CONFIG.model || 'gemini-3.8-flash';
   const url = `${CONFIG.geminiBaseUrl}/models/${encodeURIComponent(
     model
   )}:generateContent?key=${encodeURIComponent(CONFIG.apiKey)}`;
@@ -179,21 +415,12 @@ async function callGemini(messages) {
   if (system) body.systemInstruction = { parts: [{ text: system.content }] };
   if (CONFIG.jsonMode) body.generationConfig.responseMimeType = 'application/json';
 
-  const res = await fetchWithTimeout(
-    url,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    },
-    CONFIG.timeoutMs
-  );
+  const data = await providerFetch('Gemini', url, body, {
+    'Content-Type': 'application/json',
+  });
 
-  const data = await readJson(res);
-  if (!res.ok) {
-    throw new Error(providerError('Gemini', res.status, data));
-  }
-  const parts = data?.candidates?.[0]?.content?.parts || [];
+  const parts = (data && data.candidates && data.candidates[0] && data.candidates[0].content &&
+    data.candidates[0].content.parts) || [];
   const text = parts.map((p) => p.text || '').join('').trim();
   if (!text) throw new Error('Gemini returned an empty response.');
   return text;
@@ -212,24 +439,13 @@ async function callOpenAI(messages) {
   };
   if (CONFIG.jsonMode) body.response_format = { type: 'json_object' };
 
-  const res = await fetchWithTimeout(
-    url,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${CONFIG.apiKey}`,
-      },
-      body: JSON.stringify(body),
-    },
-    CONFIG.timeoutMs
-  );
+  const data = await providerFetch('OpenAI-compatible API', url, body, {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${CONFIG.apiKey}`,
+  });
 
-  const data = await readJson(res);
-  if (!res.ok) {
-    throw new Error(providerError('OpenAI-compatible API', res.status, data));
-  }
-  const text = data?.choices?.[0]?.message?.content;
+  const text = data && data.choices && data.choices[0] && data.choices[0].message &&
+    data.choices[0].message.content;
   if (!text || !text.trim()) throw new Error('The model returned an empty response.');
   return text.trim();
 }
@@ -245,42 +461,13 @@ async function callOllama(messages) {
   };
   if (CONFIG.jsonMode) body.format = 'json';
 
-  const res = await fetchWithTimeout(
-    url,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    },
-    CONFIG.timeoutMs
-  );
+  const data = await providerFetch('Ollama', url, body, {
+    'Content-Type': 'application/json',
+  });
 
-  const data = await readJson(res);
-  if (!res.ok) {
-    throw new Error(providerError('Ollama', res.status, data));
-  }
-  const text = data?.message?.content;
+  const text = data && data.message && data.message.content;
   if (!text || !text.trim()) throw new Error('The local model returned an empty response.');
   return text.trim();
-}
-
-/** Read a response body as JSON, falling back to text. */
-async function readJson(res) {
-  const text = await res.text();
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { raw: text };
-  }
-}
-
-/** Turn a provider error payload into a short, safe message (no secrets). */
-function providerError(name, status, data) {
-  const detail =
-    data?.error?.message ||
-    data?.message ||
-    (typeof data?.raw === 'string' ? data.raw.slice(0, 200) : '');
-  return `${name} request failed (HTTP ${status})${detail ? `: ${detail}` : ''}`;
 }
 
 /**
@@ -291,12 +478,12 @@ function providerError(name, status, data) {
 async function callLLM(messages) {
   switch (CONFIG.provider) {
     case 'gemini':
-      return callGemini(messages);
+      return withRetry('gemini', () => callGemini(messages));
     case 'openai':
     case 'openai-compatible':
-      return callOpenAI(messages);
+      return withRetry('openai', () => callOpenAI(messages));
     case 'ollama':
-      return callOllama(messages);
+      return withRetry('ollama', () => callOllama(messages));
     default:
       throw new Error(
         `Unknown LLM_PROVIDER "${CONFIG.provider}". Use one of: gemini, openai, ollama.`
@@ -363,12 +550,75 @@ function parseModelOutput(raw) {
 }
 
 // ---------------------------------------------------------------------------
+// Conversation sessions (in-memory, no database - out of scope by design)
+// ---------------------------------------------------------------------------
+
+const sessions = new Map();
+
+/** Fetch (and refresh) a session record. */
+function getSession(id) {
+  if (!id) return null;
+  const key = String(id).slice(0, 64);
+  const existing = sessions.get(key);
+  if (existing) {
+    existing.updatedAt = Date.now();
+    return existing;
+  }
+  const created = { id: key, history: [], updatedAt: Date.now() };
+  sessions.set(key, created);
+  return created;
+}
+
+/** Drop sessions that have been idle for longer than the TTL. */
+function pruneSessions() {
+  const cutoff = Date.now() - SESSION_TTL_MS;
+  for (const [key, value] of sessions) {
+    if (value.updatedAt < cutoff) sessions.delete(key);
+  }
+}
+setInterval(pruneSessions, 5 * 60 * 1000).unref?.();
+
+// ---------------------------------------------------------------------------
+// Rate limiting
+// ---------------------------------------------------------------------------
+
+function rateLimit(req, res, next) {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  const bucket = rateBuckets.get(ip);
+  if (!bucket || now - bucket.start > RATE_LIMIT.windowMs) {
+    rateBuckets.set(ip, { start: now, count: 1 });
+    return next();
+  }
+  bucket.count += 1;
+  if (bucket.count > RATE_LIMIT.max) {
+    const retryAfter = Math.ceil((bucket.start + RATE_LIMIT.windowMs - now) / 1000);
+    res.set('Retry-After', String(retryAfter));
+    return res.status(429).json({
+      answer: 'You are sending questions very quickly. Please wait a moment and try again.',
+      category: 'Other',
+      grounded: false,
+      error: 'rate_limited',
+    });
+  }
+  return next();
+}
+
+// ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
 
 app.use(cors());
 app.use(express.json({ limit: '64kb' }));
-app.use(express.static(PUBLIC_DIR));
+app.use(
+  express.static(PUBLIC_DIR, {
+    etag: true,
+    setHeaders(res, filePath) {
+      // The shell must never be stale; assets can be cached.
+      if (filePath.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache');
+    },
+  })
+);
 
 /** Liveness probe. */
 app.get('/api/health', (req, res) => {
@@ -377,7 +627,8 @@ app.get('/api/health', (req, res) => {
     provider: CONFIG.provider,
     model: effectiveModel(),
     knowledgeCategories: Object.keys(KNOWLEDGE).length,
-    hasApiKey: Boolean(CONFIG.apiKey),
+    hasApiKey: hasApiKey(),
+    cooldownSeconds: cooldownRemainingSeconds(),
     timestamp: new Date().toISOString(),
   });
 });
@@ -387,17 +638,48 @@ app.get('/api/config', (req, res) => {
   res.json({
     provider: CONFIG.provider,
     model: effectiveModel(),
-    aiEnabled: Boolean(CONFIG.apiKey) || CONFIG.provider === 'ollama',
+    aiEnabled: hasApiKey(),
+    maxMessageLength: MAX_MESSAGE_LENGTH,
+    categories: Object.keys(KNOWLEDGE),
+    cooldownSeconds: cooldownRemainingSeconds(),
   });
 });
 
+/** The knowledge base, so the UI can show the real categories and sources. */
+app.get('/api/knowledge', (req, res) => {
+  res.json({
+    knowledge: KNOWLEDGE,
+    categories: Object.keys(KNOWLEDGE),
+    source: 'knowledge.json',
+  });
+});
+
+/** Restore a stored conversation (used to survive a page reload). */
+app.get('/api/session/:id', (req, res) => {
+  const session = getSession(req.params.id);
+  res.json({ sessionId: session.id, history: session.history });
+});
+
+/** Forget a stored conversation - this is what "Clear Chat" calls. */
+app.delete('/api/session/:id', (req, res) => {
+  const session = sessions.get(String(req.params.id).slice(0, 64));
+  if (session) session.history = [];
+  res.json({ ok: true, sessionId: req.params.id, history: [] });
+});
+
+/** Seconds left on the provider cooldown, 0 when the provider is healthy. */
+function cooldownRemainingSeconds() {
+  if (providerCooldownUntil <= Date.now()) return 0;
+  return Math.ceil((providerCooldownUntil - Date.now()) / 1000);
+}
+
 /**
  * POST /api/chat
- * body: { message: string, history: [{role, content}] }
- * returns: { answer, category, grounded }
+ * body: { message: string, history?: [{role, content}], sessionId?: string }
+ * returns: { answer, category, grounded, flags }
  */
-app.post('/api/chat', async (req, res) => {
-  const { message, history } = req.body || {};
+app.post('/api/chat', rateLimit, async (req, res) => {
+  const { message, history, sessionId } = req.body || {};
 
   // --- 1. Validate input ---------------------------------------------------
   if (typeof message !== 'string' || !message.trim()) {
@@ -419,7 +701,7 @@ app.post('/api/chat', async (req, res) => {
   }
 
   // --- 2. Guard: no key configured ----------------------------------------
-  if (!CONFIG.apiKey && CONFIG.provider !== 'ollama') {
+  if (!hasApiKey()) {
     return res.status(503).json({
       answer:
         'The assistant is unavailable right now, please try again. (The server has not been configured with an API key.)',
@@ -429,28 +711,83 @@ app.post('/api/chat', async (req, res) => {
     });
   }
 
+  // --- 3. Guard: the provider is cooling down after a quota error ----------
+  const cooldown = cooldownRemainingSeconds();
+  if (cooldown > 0) {
+    res.set('Retry-After', String(cooldown));
+    return res.status(429).json({
+      answer: `Nova is catching up with the university helpdesk queue. Please try again in about ${cooldown} second${cooldown === 1 ? '' : 's'}.`,
+      category: 'Other',
+      grounded: false,
+      error: 'rate_limited',
+      retryAfterSeconds: cooldown,
+    });
+  }
+
   try {
-    // --- 3. Build prompt + call the model ---------------------------------
-    const messages = buildPrompt(history, cleanMessage);
+    // --- 4. Work out which history to use ---------------------------------
+    // The client may send its own history; otherwise we use the stored session.
+    const session = sessionId ? getSession(sessionId) : null;
+    let contextHistory;
+    if (Array.isArray(history) && history.length) {
+      contextHistory = history;
+    } else if (session) {
+      contextHistory = session.history;
+    } else {
+      contextHistory = [];
+    }
+
+    // --- 5. Build prompt + call the model ---------------------------------
+    const messages = buildPrompt(contextHistory, cleanMessage);
     const raw = await callLLM(messages);
 
-    // --- 4. Parse the model output ----------------------------------------
-    const { answer, category, grounded } = parseModelOutput(raw);
+    // --- 6. Parse + verify the model output -------------------------------
+    const { answer, category, grounded: modelClaimed } = parseModelOutput(raw);
+    const verification = verifyGrounding(answer);
+    const grounded = modelClaimed && verification.grounded;
+
+    // --- 7. Persist the turn so follow-ups keep their context ------------
+    if (session) {
+      session.history.push({ role: 'user', content: cleanMessage });
+      session.history.push({ role: 'assistant', content: answer });
+      if (session.history.length > SESSION_MAX_MESSAGES) {
+        session.history = session.history.slice(-SESSION_MAX_MESSAGES);
+      }
+      session.updatedAt = Date.now();
+    }
 
     return res.json({
       answer,
       category,
       grounded,
+      flags: verification.flags,
       provider: CONFIG.provider,
       model: effectiveModel(),
     });
   } catch (err) {
     // Never leak a stack trace or the API key to the client.
-    const aborted = err && (err.name === 'AbortError' || /abort/i.test(err.message || ''));
-    console.error('[chat] LLM call failed:', aborted ? 'timeout' : err.message);
+    const aborted =
+      err && (err.aborted === true || err.name === 'AbortError' || /abort/i.test(err.message || ''));
+    const quota = err && err.quota === true;
+    console.error(
+      '[chat] LLM call failed:',
+      aborted ? 'timeout' : quota ? 'provider quota exceeded' : err.message
+    );
+
+    if (quota) {
+      const cooldown = cooldownRemainingSeconds();
+      res.set('Retry-After', String(cooldown));
+      return res.status(429).json({
+        answer: `Nova is catching up with the university helpdesk queue. Please try again in about ${cooldown} second${cooldown === 1 ? '' : 's'}.`,
+        category: 'Other',
+        grounded: false,
+        error: 'rate_limited',
+        retryAfterSeconds: cooldown,
+      });
+    }
+
     return res.status(502).json({
-      answer:
-        'The assistant is unavailable right now, please try again in a moment.',
+      answer: 'The assistant is unavailable right now, please try again in a moment.',
       category: 'Other',
       grounded: false,
       error: aborted ? 'timeout' : 'llm_error',
@@ -466,6 +803,23 @@ app.use((req, res, next) => {
   next();
 });
 
+/**
+ * Friendly error handler.
+ * Catches malformed JSON bodies (and any other server error) so the client
+ * always receives a readable JSON payload instead of an HTML stack trace.
+ */
+app.use((err, req, res, next) => {
+  const isBadBody = err && (err.type === 'entity.parse.failed' || err instanceof SyntaxError);
+  console.warn('[server] Request error:', isBadBody ? 'malformed JSON body' : err.message);
+  if (res.headersSent) return next(err);
+  return res.status(isBadBody ? 400 : 500).json({
+    answer: 'The assistant is unavailable right now, please try again.',
+    category: 'Other',
+    grounded: false,
+    error: isBadBody ? 'invalid_request' : 'server_error',
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Start
 // ---------------------------------------------------------------------------
@@ -477,10 +831,17 @@ if (require.main === module) {
     console.log(`  Server running at  http://localhost:${PORT}`);
     console.log(`  LLM provider:     ${CONFIG.provider}`);
     console.log(`  Model:             ${effectiveModel()}`);
-    console.log(`  API key loaded:    ${CONFIG.apiKey ? 'yes' : 'NO  <-- set LLM_API_KEY in .env'}`);
+    console.log(`  API key loaded:    ${hasApiKey() ? 'yes' : 'NO  <-- set LLM_API_KEY in .env'}`);
     console.log(`  Knowledge entries: ${Object.keys(KNOWLEDGE).length}\n`);
   });
 }
 
 // Export for tests / reuse.
-module.exports = { app, buildPrompt, parseModelOutput, callLLM, KNOWLEDGE };
+module.exports = {
+  app,
+  buildPrompt,
+  parseModelOutput,
+  verifyGrounding,
+  callLLM,
+  KNOWLEDGE,
+};
